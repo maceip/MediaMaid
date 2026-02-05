@@ -51,7 +51,10 @@ class MusicFileScanner @Inject constructor(
             MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.DATA,
             MediaStore.Audio.Media.SIZE,
-            MediaStore.Audio.Media.DATE_MODIFIED
+            MediaStore.Audio.Media.DATE_MODIFIED,
+            MediaStore.Audio.Media.DURATION,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.TRACK
         )
 
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
@@ -69,6 +72,12 @@ class MusicFileScanner @Inject constructor(
             val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
             val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
             val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
+            val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+            val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+            val trackColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
+
+            // Count total tracks per album path for "X of Y" display
+            val totalFiles = mutableListOf<Triple<String, Long, Int?>>() // path, duration, track
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idColumn)
@@ -76,6 +85,10 @@ class MusicFileScanner @Inject constructor(
                 val path = cursor.getString(dataColumn) ?: continue
                 val size = cursor.getLong(sizeColumn)
                 val lastModified = cursor.getLong(dateColumn) * 1000
+                val duration = cursor.getLong(durationColumn)
+                val artist = cursor.getString(artistColumn)?.takeIf { it != "<unknown>" }
+                val trackRaw = cursor.getInt(trackColumn)
+                val trackNumber = if (trackRaw > 0) trackRaw % 1000 else null
 
                 val file = File(path)
                 if (!file.exists()) continue
@@ -90,7 +103,10 @@ class MusicFileScanner @Inject constructor(
                         path = path,
                         extension = ext,
                         size = size,
-                        lastModified = lastModified
+                        lastModified = lastModified,
+                        duration = duration,
+                        artist = artist,
+                        trackNumber = trackNumber
                     )
                 )
             }
