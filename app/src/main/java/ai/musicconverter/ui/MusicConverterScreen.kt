@@ -25,24 +25,31 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderCopy
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SyncDisabled
 import androidx.compose.material.icons.filled.Transform
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -50,23 +57,30 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import ai.musicconverter.R
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import ai.musicconverter.data.ConversionStatus
 import ai.musicconverter.data.MusicFile
+import ai.musicconverter.ui.components.StatusTube
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,9 +89,24 @@ fun MusicConverterScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val autoConvertEnabled by viewModel.autoConvertEnabled.collectAsState()
-    val deleteOriginalEnabled by viewModel.deleteOriginalEnabled.collectAsState()
+    val keepOriginalEnabled by viewModel.keepOriginalEnabled.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Dialog and bottom sheet state
+    var showConvertConfirmDialog by remember { mutableStateOf(false) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
+    val settingsSheetState = rememberModalBottomSheetState()
+
+    // Calculate if any files are currently converting
+    val isConverting = uiState.isBatchConverting || uiState.musicFiles.any { it.isConverting }
+    val convertingCount = uiState.musicFiles.count { it.isConverting }
+    val pendingCount = uiState.musicFiles.count { it.needsConversion && !it.isConverting }
+    val batchProgress = if (uiState.totalToConvert > 0) {
+        "${uiState.convertedCount}/${uiState.totalToConvert}"
+    } else {
+        convertingCount.toString()
+    }
 
     // Permission launcher for storage
     val storagePermissionLauncher = rememberLauncherForActivityResult(
@@ -141,10 +170,10 @@ fun MusicConverterScreen(
                             contentDescription = "Refresh"
                         )
                     }
-                    IconButton(onClick = { viewModel.toggleAutoConvert() }) {
+                    IconButton(onClick = { showSettingsSheet = true }) {
                         Icon(
-                            if (autoConvertEnabled) Icons.Default.CloudSync else Icons.Default.SyncDisabled,
-                            contentDescription = if (autoConvertEnabled) "Disable Auto Convert" else "Enable Auto Convert",
+                            Icons.Default.Settings,
+                            contentDescription = "Settings",
                             tint = if (autoConvertEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -153,19 +182,41 @@ fun MusicConverterScreen(
         },
         floatingActionButton = {
             if (uiState.musicFiles.isNotEmpty()) {
-                FloatingActionButton(
-                    onClick = { viewModel.convertAllFiles() },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.padding(bottom = 72.dp) // Make room for bottom bar
-                ) {
-                    Icon(Icons.Default.Transform, contentDescription = "Convert All")
+                if (isConverting) {
+                    // Show cancel button when conversion is in progress
+                    ExtendedFloatingActionButton(
+                        onClick = { viewModel.cancelAllConversions() },
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(bottom = 72.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Cancel ($batchProgress)")
+                    }
+                } else {
+                    // Show convert button with rainbow bolt icon
+                    ExtendedFloatingActionButton(
+                        onClick = { showConvertConfirmDialog = true },
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.padding(bottom = 72.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_rainbow_bolt),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = androidx.compose.ui.graphics.Color.Unspecified
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Convert All ($pendingCount)")
+                    }
                 }
             }
         },
         bottomBar = {
-            DeleteOriginalBottomBar(
-                deleteOriginalEnabled = deleteOriginalEnabled,
-                onToggle = { viewModel.toggleDeleteOriginal() }
+            KeepOriginalBottomBar(
+                keepOriginalEnabled = keepOriginalEnabled,
+                onToggle = { viewModel.toggleKeepOriginal() }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -247,13 +298,180 @@ fun MusicConverterScreen(
                     }
                 }
             }
+
+            // Status tube rail (right side)
+            if (uiState.musicFiles.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 4.dp, top = 48.dp, bottom = 80.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                ) {
+                    StatusTube(
+                        filesRemaining = pendingCount,
+                        isConverting = isConverting,
+                        modifier = Modifier.height(200.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    // Convert confirmation dialog
+    if (showConvertConfirmDialog) {
+        val isLargeBatch = pendingCount > 100
+        AlertDialog(
+            onDismissRequest = { showConvertConfirmDialog = false },
+            title = { Text("Convert ${pendingCount} Files?") },
+            text = {
+                Column {
+                    Text("This will convert all ${pendingCount} audio files to AAC format.")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        if (keepOriginalEnabled) {
+                            "Original files will be kept."
+                        } else {
+                            "Original files will be deleted after conversion."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (isLargeBatch) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "Large batch: Files will be processed 3 at a time. " +
+                            "You can cancel anytime with the Cancel button.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConvertConfirmDialog = false
+                        viewModel.convertAllFiles()
+                    }
+                ) {
+                    Text(if (isLargeBatch) "Start Converting" else "Convert")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConvertConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Settings bottom sheet
+    if (showSettingsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSettingsSheet = false },
+            sheetState = settingsSheetState
+        ) {
+            SettingsSheetContent(
+                autoConvertEnabled = autoConvertEnabled,
+                onToggleAutoConvert = { viewModel.toggleAutoConvert() },
+                onDismiss = { showSettingsSheet = false }
+            )
         }
     }
 }
 
 @Composable
-private fun DeleteOriginalBottomBar(
-    deleteOriginalEnabled: Boolean,
+private fun SettingsSheetContent(
+    autoConvertEnabled: Boolean,
+    onToggleAutoConvert: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(bottom = 32.dp)
+    ) {
+        Text(
+            "Auto-Convert Settings",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+
+        // Auto-convert toggle
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (autoConvertEnabled) {
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                }
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        if (autoConvertEnabled) Icons.Default.CloudSync else Icons.Default.SyncDisabled,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = if (autoConvertEnabled) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            "Auto-Convert Service",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            if (autoConvertEnabled) {
+                                "Automatically converts new audio files"
+                            } else {
+                                "Manual conversion only"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Switch(
+                    checked = autoConvertEnabled,
+                    onCheckedChange = { onToggleAutoConvert() }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Info text
+        Text(
+            "When enabled, the app will run a background service that monitors for new audio files and automatically converts them to AAC format.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun KeepOriginalBottomBar(
+    keepOriginalEnabled: Boolean,
     onToggle: () -> Unit
 ) {
     Surface(
@@ -275,27 +493,27 @@ private fun DeleteOriginalBottomBar(
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(
-                        if (deleteOriginalEnabled) Icons.Default.Delete else Icons.Default.FolderCopy,
+                        if (keepOriginalEnabled) Icons.Default.Save else Icons.Default.FolderCopy,
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
-                        tint = if (deleteOriginalEnabled) {
-                            MaterialTheme.colorScheme.error
-                        } else {
+                        tint = if (keepOriginalEnabled) {
                             MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            if (deleteOriginalEnabled) "Delete original files" else "Keep original files",
+                            "Keep Original Files",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            if (deleteOriginalEnabled) {
-                                "Converted files saved to Music/Converted"
-                            } else {
+                            if (keepOriginalEnabled) {
                                 "Converted files saved next to originals"
+                            } else {
+                                "Originals deleted, saved to Music/Converted"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -303,13 +521,11 @@ private fun DeleteOriginalBottomBar(
                     }
                 }
                 Switch(
-                    checked = deleteOriginalEnabled,
+                    checked = keepOriginalEnabled,
                     onCheckedChange = { onToggle() },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = MaterialTheme.colorScheme.error,
-                        checkedTrackColor = MaterialTheme.colorScheme.errorContainer,
-                        uncheckedThumbColor = MaterialTheme.colorScheme.primary,
-                        uncheckedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                        checkedThumbColor = MaterialTheme.colorScheme.primary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
                     )
                 )
             }

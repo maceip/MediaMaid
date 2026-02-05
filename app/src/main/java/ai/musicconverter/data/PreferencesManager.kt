@@ -24,8 +24,9 @@ class PreferencesManager @Inject constructor(
         preferences[KEY_AUTO_CONVERT_ENABLED] ?: false
     }
 
-    val deleteOriginalAfterConversion: Flow<Boolean> = dataStore.data.map { preferences ->
-        preferences[KEY_DELETE_ORIGINAL] ?: true // Default: delete original
+    // Keep Original Files: false = delete originals (default), true = keep originals
+    val keepOriginalFiles: Flow<Boolean> = dataStore.data.map { preferences ->
+        preferences[KEY_KEEP_ORIGINAL] ?: false // Default: don't keep (delete originals)
     }
 
     suspend fun setAutoConvertEnabled(enabled: Boolean) {
@@ -34,14 +35,14 @@ class PreferencesManager @Inject constructor(
         }
     }
 
-    suspend fun setDeleteOriginalAfterConversion(enabled: Boolean) {
+    suspend fun setKeepOriginalFiles(enabled: Boolean) {
         dataStore.edit { preferences ->
-            preferences[KEY_DELETE_ORIGINAL] = enabled
+            preferences[KEY_KEEP_ORIGINAL] = enabled
         }
     }
 
     companion object {
         private val KEY_AUTO_CONVERT_ENABLED = booleanPreferencesKey("auto_convert_enabled")
-        private val KEY_DELETE_ORIGINAL = booleanPreferencesKey("delete_original")
+        private val KEY_KEEP_ORIGINAL = booleanPreferencesKey("keep_original")
     }
 }

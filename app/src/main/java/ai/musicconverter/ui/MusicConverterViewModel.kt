@@ -16,12 +16,15 @@ import ai.musicconverter.data.PreferencesManager
 import ai.musicconverter.service.AutoConvertService
 import ai.musicconverter.worker.ConversionWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -31,7 +34,11 @@ data class MusicConverterUiState(
     val status: ConversionStatus = ConversionStatus.IDLE,
     val currentConvertingId: String? = null,
     val error: String? = null,
-    val hasStoragePermission: Boolean = false
+    val hasStoragePermission: Boolean = false,
+    // Batch conversion progress
+    val totalToConvert: Int = 0,
+    val convertedCount: Int = 0,
+    val isBatchConverting: Boolean = false
 )
 
 @HiltViewModel
@@ -49,8 +56,26 @@ class MusicConverterViewModel @Inject constructor(
     val autoConvertEnabled: StateFlow<Boolean> = preferencesManager.autoConvertEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    val deleteOriginalEnabled: StateFlow<Boolean> = preferencesManager.deleteOriginalAfterConversion
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true) // Default: delete original
+    // Keep Original Files: OFF = delete originals (default), ON = keep originals
+    val keepOriginalEnabled: StateFlow<Boolean> = preferencesManager.keepOriginalFiles
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // Batching constants - prevent overwhelming the system
+    private companion object {
+        const val MAX_CONCURRENT_CONVERSIONS = 3
+        const val BATCH_SIZE = 10
+        const val ENQUEUE_DELAY_MS = 50L
+        const val UI_UPDATE_DEBOUNCE_MS = 100L
+    }
+
+    // Track files being converted by path for O(1) lookups
+    private val convertingFiles = mutableSetOf<String>()
+
+    // Job for batch conversion - can be cancelled
+    private var batchConversionJob: Job? = null
+
+    // Pending UI updates - debounced
+    private var pendingUiUpdate: Job? = null
 
     init {
         observeWorkProgress()
@@ -89,10 +114,80 @@ class MusicConverterViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Convert a single file - used for individual item conversion
+     */
     fun convertFile(musicFile: MusicFile) {
-        val deleteOriginal = deleteOriginalEnabled.value
-        // If deleting original, save to Music/Converted folder for music app discovery
-        // If keeping original, save converted file next to original
+        if (convertingFiles.contains(musicFile.path)) {
+            Timber.d("File already being converted: ${musicFile.path}")
+            return
+        }
+
+        enqueueConversion(musicFile)
+        scheduleUiUpdate()
+    }
+
+    /**
+     * Convert all files with proper batching to prevent crashes.
+     * Files are processed in batches with concurrency limits.
+     */
+    fun convertAllFiles() {
+        val filesToConvert = _uiState.value.musicFiles
+            .filter { it.needsConversion && !convertingFiles.contains(it.path) }
+
+        if (filesToConvert.isEmpty()) {
+            Timber.d("No files to convert")
+            return
+        }
+
+        Timber.d("Starting batch conversion of ${filesToConvert.size} files")
+
+        _uiState.update {
+            it.copy(
+                isBatchConverting = true,
+                totalToConvert = filesToConvert.size,
+                convertedCount = 0,
+                status = ConversionStatus.CONVERTING
+            )
+        }
+
+        batchConversionJob = viewModelScope.launch {
+            var enqueued = 0
+
+            for (file in filesToConvert) {
+                if (!isActive) {
+                    Timber.d("Batch conversion cancelled")
+                    break
+                }
+
+                // Wait if we have too many concurrent jobs
+                while (isActive && getActiveConversionCount() >= MAX_CONCURRENT_CONVERSIONS) {
+                    delay(200)
+                }
+
+                if (!isActive) break
+
+                enqueueConversion(file)
+                enqueued++
+
+                // Small delay between enqueues to prevent overwhelming WorkManager
+                if (enqueued % BATCH_SIZE == 0) {
+                    scheduleUiUpdate()
+                    delay(ENQUEUE_DELAY_MS)
+                }
+            }
+
+            Timber.d("Batch conversion enqueued $enqueued files")
+            scheduleUiUpdate()
+        }
+    }
+
+    /**
+     * Enqueue a single file for conversion
+     */
+    private fun enqueueConversion(musicFile: MusicFile) {
+        val keepOriginal = keepOriginalEnabled.value
+        val deleteOriginal = !keepOriginal
         val saveToMusicFolder = deleteOriginal
 
         val workRequest = OneTimeWorkRequestBuilder<ConversionWorker>()
@@ -119,92 +214,135 @@ class MusicConverterViewModel @Inject constructor(
             workRequest
         )
 
-        _uiState.update { state ->
-            state.copy(
-                musicFiles = state.musicFiles.map {
-                    if (it.id == musicFile.id) it.copy(isConverting = true) else it
-                },
-                currentConvertingId = musicFile.id,
-                status = ConversionStatus.CONVERTING
-            )
+        convertingFiles.add(musicFile.path)
+    }
+
+    /**
+     * Get count of currently active (running + enqueued) conversions
+     */
+    private fun getActiveConversionCount(): Int {
+        return try {
+            workManager.getWorkInfosByTag(ConversionWorker.WORK_TAG)
+                .get()
+                .count { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
+        } catch (e: Exception) {
+            Timber.e(e, "Error getting active conversion count")
+            0
         }
     }
 
-    fun convertAllFiles() {
-        val filesToConvert = _uiState.value.musicFiles.filter { it.needsConversion && !it.isConverting }
+    /**
+     * Schedule a debounced UI update to prevent rapid-fire state changes
+     */
+    private fun scheduleUiUpdate() {
+        pendingUiUpdate?.cancel()
+        pendingUiUpdate = viewModelScope.launch {
+            delay(UI_UPDATE_DEBOUNCE_MS)
+            updateUiFromConvertingSet()
+        }
+    }
 
-        filesToConvert.forEach { convertFile(it) }
+    /**
+     * Update UI state based on the converting files set
+     */
+    private fun updateUiFromConvertingSet() {
+        _uiState.update { state ->
+            state.copy(
+                musicFiles = state.musicFiles.map { file ->
+                    val isConverting = convertingFiles.contains(file.path)
+                    if (file.isConverting != isConverting) {
+                        file.copy(isConverting = isConverting)
+                    } else {
+                        file
+                    }
+                },
+                status = if (convertingFiles.isNotEmpty()) ConversionStatus.CONVERTING else ConversionStatus.IDLE
+            )
+        }
     }
 
     private fun observeWorkProgress() {
         viewModelScope.launch {
             workManager.getWorkInfosByTagFlow(ConversionWorker.WORK_TAG)
                 .collect { workInfos ->
-                    workInfos.forEach { workInfo ->
-                        handleWorkInfoUpdate(workInfo)
-                    }
+                    // Process in batches and debounce to avoid UI storms
+                    processWorkInfosBatched(workInfos)
                 }
         }
     }
 
-    private fun handleWorkInfoUpdate(workInfo: WorkInfo) {
-        val inputPath = workInfo.outputData.getString(ConversionWorker.KEY_INPUT_PATH)
-        val progress = workInfo.progress.getFloat(ConversionWorker.KEY_PROGRESS, 0f)
+    /**
+     * Process work infos efficiently without causing UI storms
+     */
+    private fun processWorkInfosBatched(workInfos: List<WorkInfo>) {
+        var hasChanges = false
+        val completedPaths = mutableListOf<String>()
+        val failedPaths = mutableMapOf<String, String>()
 
-        when (workInfo.state) {
-            WorkInfo.State.RUNNING -> {
-                _uiState.update { state ->
-                    state.copy(
-                        musicFiles = state.musicFiles.map { file ->
-                            if (file.path == inputPath) {
-                                file.copy(isConverting = true, conversionProgress = progress)
-                            } else file
+        for (workInfo in workInfos) {
+            val inputPath = workInfo.outputData.getString(ConversionWorker.KEY_INPUT_PATH)
+                ?: workInfo.progress.getString(ConversionWorker.KEY_INPUT_PATH)
+                ?: continue
+
+            when (workInfo.state) {
+                WorkInfo.State.SUCCEEDED -> {
+                    if (convertingFiles.remove(inputPath)) {
+                        completedPaths.add(inputPath)
+                        hasChanges = true
+                    }
+                }
+                WorkInfo.State.FAILED -> {
+                    if (convertingFiles.remove(inputPath)) {
+                        val error = workInfo.outputData.getString(ConversionWorker.KEY_ERROR) ?: "Unknown error"
+                        failedPaths[inputPath] = error
+                        hasChanges = true
+                    }
+                }
+                WorkInfo.State.CANCELLED -> {
+                    if (convertingFiles.remove(inputPath)) {
+                        hasChanges = true
+                    }
+                }
+                else -> { /* RUNNING, ENQUEUED, BLOCKED - no state change needed */ }
+            }
+        }
+
+        if (hasChanges) {
+            _uiState.update { state ->
+                val updatedFiles = state.musicFiles
+                    .filter { it.path !in completedPaths }
+                    .map { file ->
+                        if (file.path in failedPaths) {
+                            file.copy(isConverting = false, conversionProgress = 0f)
+                        } else {
+                            file
                         }
-                    )
-                }
-            }
-            WorkInfo.State.SUCCEEDED -> {
-                val completedPath = workInfo.outputData.getString(ConversionWorker.KEY_INPUT_PATH)
-                Timber.d("Conversion succeeded for: $completedPath")
+                    }
 
-                _uiState.update { state ->
-                    state.copy(
-                        musicFiles = state.musicFiles.filter { it.path != completedPath },
-                        status = if (state.musicFiles.size <= 1) ConversionStatus.COMPLETED else state.status,
-                        currentConvertingId = null
-                    )
-                }
-            }
-            WorkInfo.State.FAILED -> {
-                val error = workInfo.outputData.getString(ConversionWorker.KEY_ERROR)
-                Timber.e("Conversion failed: $error")
+                val newConvertedCount = state.convertedCount + completedPaths.size
+                val stillConverting = convertingFiles.isNotEmpty()
 
-                _uiState.update { state ->
-                    state.copy(
-                        musicFiles = state.musicFiles.map { file ->
-                            if (file.path == inputPath) {
-                                file.copy(isConverting = false, conversionProgress = 0f)
-                            } else file
-                        },
-                        status = ConversionStatus.ERROR,
-                        error = error,
-                        currentConvertingId = null
-                    )
-                }
+                state.copy(
+                    musicFiles = updatedFiles,
+                    convertedCount = newConvertedCount,
+                    isBatchConverting = stillConverting && state.isBatchConverting,
+                    status = when {
+                        failedPaths.isNotEmpty() -> ConversionStatus.ERROR
+                        !stillConverting && state.isBatchConverting -> ConversionStatus.COMPLETED
+                        stillConverting -> ConversionStatus.CONVERTING
+                        else -> ConversionStatus.IDLE
+                    },
+                    error = failedPaths.values.firstOrNull(),
+                    currentConvertingId = null
+                )
             }
-            WorkInfo.State.CANCELLED -> {
-                _uiState.update { state ->
-                    state.copy(
-                        musicFiles = state.musicFiles.map { file ->
-                            if (file.path == inputPath) {
-                                file.copy(isConverting = false, conversionProgress = 0f)
-                            } else file
-                        },
-                        currentConvertingId = null
-                    )
-                }
+
+            if (completedPaths.isNotEmpty()) {
+                Timber.d("Completed ${completedPaths.size} conversions")
             }
-            else -> { /* ENQUEUED, BLOCKED */ }
+            if (failedPaths.isNotEmpty()) {
+                Timber.e("Failed ${failedPaths.size} conversions")
+            }
         }
     }
 
@@ -223,11 +361,41 @@ class MusicConverterViewModel @Inject constructor(
         }
     }
 
-    fun toggleDeleteOriginal() {
+    fun toggleKeepOriginal() {
         viewModelScope.launch {
-            val currentEnabled = deleteOriginalEnabled.value
-            preferencesManager.setDeleteOriginalAfterConversion(!currentEnabled)
+            val currentEnabled = keepOriginalEnabled.value
+            preferencesManager.setKeepOriginalFiles(!currentEnabled)
         }
+    }
+
+    fun cancelAllConversions() {
+        // Cancel the batch job first
+        batchConversionJob?.cancel()
+        batchConversionJob = null
+
+        // Cancel all WorkManager work
+        workManager.cancelAllWorkByTag(ConversionWorker.WORK_TAG)
+
+        // Clear our tracking set
+        convertingFiles.clear()
+
+        // Reset UI state
+        _uiState.update { state ->
+            state.copy(
+                musicFiles = state.musicFiles.map { file ->
+                    if (file.isConverting) {
+                        file.copy(isConverting = false, conversionProgress = 0f)
+                    } else file
+                },
+                status = ConversionStatus.IDLE,
+                isBatchConverting = false,
+                totalToConvert = 0,
+                convertedCount = 0,
+                currentConvertingId = null
+            )
+        }
+
+        Timber.d("Cancelled all conversions")
     }
 
     fun clearError() {

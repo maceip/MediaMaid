@@ -137,8 +137,9 @@ class AutoConvertService : Service() {
             totalPending
         )
 
-        // Get user preference for delete original
-        val deleteOriginal = preferencesManager.deleteOriginalAfterConversion.first()
+        // Get user preference: keepOriginal = false means delete original
+        val keepOriginal = preferencesManager.keepOriginalFiles.first()
+        val deleteOriginal = !keepOriginal
 
         // Queue this batch
         filesToConvert.forEach { musicFile ->
