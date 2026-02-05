@@ -9,10 +9,30 @@ data class MusicFile(
     val extension: String,
     val size: Long,
     val lastModified: Long,
+    val duration: Long = 0L,
+    val artist: String? = null,
+    val trackNumber: Int? = null,
+    val totalTracks: Int? = null,
     val isConverting: Boolean = false,
     val conversionProgress: Float = 0f
 ) {
     val file: File get() = File(path)
+
+    val displayDuration: String
+        get() {
+            if (duration <= 0) return "--:--"
+            val totalSeconds = duration / 1000
+            val minutes = totalSeconds / 60
+            val seconds = totalSeconds % 60
+            return String.format("%d:%02d", minutes, seconds)
+        }
+
+    val displayTrack: String
+        get() {
+            val num = trackNumber ?: return ""
+            val total = totalTracks
+            return if (total != null && total > 0) "$num of $total" else "$num"
+        }
 
     val displaySize: String
         get() {

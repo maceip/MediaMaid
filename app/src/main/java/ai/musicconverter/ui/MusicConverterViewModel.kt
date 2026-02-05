@@ -35,11 +35,19 @@ data class MusicConverterUiState(
     val currentConvertingId: String? = null,
     val error: String? = null,
     val hasStoragePermission: Boolean = false,
+    val searchQuery: String = "",
     // Batch conversion progress
     val totalToConvert: Int = 0,
     val convertedCount: Int = 0,
     val isBatchConverting: Boolean = false
-)
+) {
+    val filteredFiles: List<MusicFile>
+        get() = if (searchQuery.isBlank()) musicFiles
+        else musicFiles.filter { file ->
+            file.name.contains(searchQuery, ignoreCase = true) ||
+            (file.artist?.contains(searchQuery, ignoreCase = true) == true)
+        }
+}
 
 @HiltViewModel
 class MusicConverterViewModel @Inject constructor(
@@ -400,5 +408,9 @@ class MusicConverterViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(error = null, status = ConversionStatus.IDLE) }
+    }
+
+    fun updateSearchQuery(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
     }
 }
