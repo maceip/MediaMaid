@@ -16,9 +16,17 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+
+        // Include all ABIs for maximum device compatibility
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
     }
 
     buildTypes {
+        debug {
+            isDebuggable = true
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
