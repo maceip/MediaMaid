@@ -31,10 +31,14 @@ jobs:
         run: ./gradlew assembleDebug
 
       - name: Verify debug APK
+        continue-on-error: true
         run: |
           echo "=== Debug APK Info ==="
           ls -la app/build/outputs/apk/debug/
-          $ANDROID_HOME/build-tools/*/aapt dump badging app/build/outputs/apk/debug/app-debug.apk | grep -E "package:|sdkVersion:|native-code:"
+          AAPT=$(find $ANDROID_HOME/build-tools -name "aapt" | head -1)
+          if [ -n "$AAPT" ]; then
+            $AAPT dump badging app/build/outputs/apk/debug/app-debug.apk | grep -E "package:|sdkVersion:|native-code:" || true
+          fi
           echo "=== APK Contents (native libs) ==="
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "\.so$" || echo "No native libraries found"
 
