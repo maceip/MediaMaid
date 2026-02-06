@@ -136,13 +136,24 @@ class MusicConverterViewModel @Inject constructor(
     }
 
     /**
+     * Convert selected files by their IDs
+     */
+    fun convertSelectedFiles(selectedIds: List<String>) {
+        val filesToConvert = _uiState.value.musicFiles
+            .filter { it.id in selectedIds && it.needsConversion && !convertingFiles.contains(it.path) }
+        startBatchConversion(filesToConvert)
+    }
+
+    /**
      * Convert all files with proper batching to prevent crashes.
-     * Files are processed in batches with concurrency limits.
      */
     fun convertAllFiles() {
         val filesToConvert = _uiState.value.musicFiles
             .filter { it.needsConversion && !convertingFiles.contains(it.path) }
+        startBatchConversion(filesToConvert)
+    }
 
+    private fun startBatchConversion(filesToConvert: List<MusicFile>) {
         if (filesToConvert.isEmpty()) {
             Timber.d("No files to convert")
             return

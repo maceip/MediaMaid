@@ -9,6 +9,8 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -44,6 +46,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -105,8 +108,22 @@ fun MusicConverterScreen(
     val settingsSheetState = rememberModalBottomSheetState()
 
     val isConverting = uiState.isBatchConverting || uiState.musicFiles.any { it.isConverting }
-    val pendingCount = uiState.musicFiles.count { it.needsConversion && !it.isConverting }
     val displayFiles = uiState.filteredFiles
+
+    // Selection state - all files selected by default
+    var selectedIds by remember(uiState.musicFiles) {
+        mutableStateOf(uiState.musicFiles.map { it.id }.toSet())
+    }
+    val selectedCount = selectedIds.size
+
+    // Track manage storage permission with mutableState so it refreshes on resume
+    var hasManageStoragePermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Environment.isExternalStorageManager()
+            } else true
+        )
+    }
 
     // Permission launcher
     val storagePermissionLauncher = rememberLauncherForActivityResult(
@@ -117,9 +134,16 @@ fun MusicConverterScreen(
         }
     }
 
-    val hasManageStoragePermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        Environment.isExternalStorageManager()
-    } else true
+    // Re-check permissions when app resumes (e.g., returning from settings)
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val hasPermission = Environment.isExternalStorageManager()
+            hasManageStoragePermission = hasPermission
+            if (hasPermission && !uiState.hasStoragePermission) {
+                viewModel.setStoragePermissionGranted(true)
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -201,8 +225,8 @@ fun MusicConverterScreen(
         bottomBar = {
             ControlBar(
                 isConverting = isConverting,
-                songsInQueue = pendingCount,
-                onPlayClick = { showConvertConfirmDialog = true },
+                songsInQueue = selectedCount,
+                onPlayClick = { if (selectedCount > 0) showConvertConfirmDialog = true },
                 onPauseClick = { viewModel.cancelAllConversions() }
             )
         },
@@ -252,7 +276,20 @@ fun MusicConverterScreen(
                 else -> {
                     CondensedMediaList(
                         files = displayFiles,
-                        totalFiles = uiState.musicFiles.size
+                        selectedIds = selectedIds,
+                        onToggleSelection = { id ->
+                            selectedIds = if (selectedIds.contains(id)) {
+                                selectedIds - id
+                            } else {
+                                selectedIds + id
+                            }
+                        },
+                        onSelectAll = {
+                            selectedIds = displayFiles.map { it.id }.toSet()
+                        },
+                        onDeselectAll = {
+                            selectedIds = emptySet()
+                        }
                     )
                 }
             }
@@ -263,23 +300,18 @@ fun MusicConverterScreen(
     if (showConvertConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showConvertConfirmDialog = false },
-            title = { Text("Convert ${pendingCount} Files?") },
+            title = { Text("Convert $selectedCount ${if (selectedCount == 1) "File" else "Files"}?") },
             text = {
-                Column {
-                    Text("Convert all ${pendingCount} audio files to AAC format.")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        if (keepOriginalEnabled) "Original files will be kept."
-                        else "Original files will be deleted after conversion.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    if (keepOriginalEnabled) "Original files will be kept."
+                    else "Original files will be replaced.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             },
             confirmButton = {
                 Button(onClick = {
                     showConvertConfirmDialog = false
-                    viewModel.convertAllFiles()
+                    viewModel.convertSelectedFiles(selectedIds.toList())
                 }) { Text("Convert") }
             },
             dismissButton = {
@@ -465,20 +497,32 @@ private fun PortalIndicator(isConverting: Boolean) {
 @Composable
 private fun CondensedMediaList(
     files: List<MusicFile>,
-    totalFiles: Int
+    selectedIds: Set<String>,
+    onToggleSelection: (String) -> Unit,
+    onSelectAll: () -> Unit,
+    onDeselectAll: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // Table header
-        MediaTableHeader()
+        // Table header with select all
+        MediaTableHeader(
+            allSelected = selectedIds.size == files.size && files.isNotEmpty(),
+            onToggleAll = { if (selectedIds.size == files.size) onDeselectAll() else onSelectAll() }
+        )
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-        // File rows
+        // File rows - use weight(1f) to allow scrolling
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
             contentPadding = PaddingValues(0.dp)
         ) {
             items(files, key = { it.id }) { file ->
-                MediaTableRow(file = file)
+                MediaTableRow(
+                    file = file,
+                    isSelected = selectedIds.contains(file.id),
+                    onToggleSelection = { onToggleSelection(file.id) }
+                )
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                     thickness = 0.5.dp
@@ -489,14 +533,22 @@ private fun CondensedMediaList(
 }
 
 @Composable
-private fun MediaTableHeader() {
+private fun MediaTableHeader(
+    allSelected: Boolean,
+    onToggleAll: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Checkbox(
+            checked = allSelected,
+            onCheckedChange = { onToggleAll() },
+            modifier = Modifier.size(32.dp)
+        )
         Text(
             text = "Name",
             style = MaterialTheme.typography.labelMedium,
@@ -508,23 +560,15 @@ private fun MediaTableHeader() {
             text = "Time",
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(52.dp),
+            modifier = Modifier.width(48.dp),
             textAlign = TextAlign.End,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = "Track #",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(60.dp),
-            textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
             text = "Artist",
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(80.dp),
+            modifier = Modifier.width(72.dp),
             textAlign = TextAlign.End,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -532,20 +576,31 @@ private fun MediaTableHeader() {
 }
 
 @Composable
-private fun MediaTableRow(file: MusicFile) {
-    val bgColor = if (file.isConverting) {
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
-    } else {
-        Color.Transparent
+private fun MediaTableRow(
+    file: MusicFile,
+    isSelected: Boolean,
+    onToggleSelection: () -> Unit
+) {
+    val bgColor = when {
+        file.isConverting -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        isSelected -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        else -> Color.Transparent
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(bgColor)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(start = 4.dp, end = 12.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Checkbox
+        Checkbox(
+            checked = isSelected,
+            onCheckedChange = { onToggleSelection() },
+            modifier = Modifier.size(32.dp)
+        )
+
         // Name + converting indicator
         Row(
             modifier = Modifier.weight(1f),
@@ -573,17 +628,8 @@ private fun MediaTableRow(file: MusicFile) {
             text = file.displayDuration,
             style = MaterialTheme.typography.bodyMedium,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.width(52.dp),
+            modifier = Modifier.width(48.dp),
             textAlign = TextAlign.End,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        // Track #
-        Text(
-            text = file.displayTrack,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.width(60.dp),
-            textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
@@ -593,7 +639,7 @@ private fun MediaTableRow(file: MusicFile) {
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(80.dp),
+            modifier = Modifier.width(72.dp),
             textAlign = TextAlign.End,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
