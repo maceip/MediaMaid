@@ -1,0 +1,743 @@
+package ai.musicconverter.ui.components
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+
+// ── Color palette for brushed metal theme ──────────────────────
+
+private val MetalLight = Color(0xFFE8E8E8)
+private val MetalMid = Color(0xFFCCCCCC)
+private val MetalDark = Color(0xFFAAAAAA)
+private val MetalEdge = Color(0xFF888888)
+private val MetalHighlight = Color(0xFFF5F5F5)
+private val MetalShadow = Color(0xFF777777)
+
+private val BrushedMetalGradient = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFFD4D4D4),
+        Color(0xFFE0E0E0),
+        Color(0xFFEEEEEE),
+        Color(0xFFE8E8E8),
+        Color(0xFFD8D8D8),
+        Color(0xFFCCCCCC),
+        Color(0xFFBBBBBB),
+        Color(0xFFC4C4C4),
+        Color(0xFFD0D0D0),
+        Color(0xFFBBBBBB),
+    )
+)
+
+private val ButtonGlossGradient = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFFF0F0F0),
+        Color(0xFFE8E8E8),
+        Color(0xFFD0D0D0),
+        Color(0xFFBBBBBB),
+    )
+)
+
+private val ButtonPressedGradient = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFFBBBBBB),
+        Color(0xFFC8C8C8),
+        Color(0xFFD0D0D0),
+        Color(0xFFCCCCCC),
+    )
+)
+
+private val ProgressBarBg = Color(0xFFF5F0E0) // Yellowish-white like the wireframe
+
+// ── Main Bottom Bar ────────────────────────────────────────────
+
+@Composable
+fun BrushedMetalBottomBar(
+    isConverting: Boolean,
+    conversionProgress: Float, // 0f..1f
+    elapsedTimeText: String,   // "00:00:00"
+    onConvertClick: () -> Unit,
+    onSearchClick: () -> Unit,
+    onPreviousClick: () -> Unit = {},
+    onRewindClick: () -> Unit = {},
+    onFastForwardClick: () -> Unit = {},
+    onNextClick: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(8.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(BrushedMetalGradient)
+                .drawBehind { drawBrushedMetalTexture() }
+        ) {
+            // ── Top: Calculator-style progress indicator ──
+            CalculatorProgressBar(
+                progress = conversionProgress,
+                timeText = elapsedTimeText,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+
+            // ── Bottom: Transport controls ──
+            TransportControlsRow(
+                isConverting = isConverting,
+                onPreviousClick = onPreviousClick,
+                onRewindClick = onRewindClick,
+                onConvertClick = onConvertClick,
+                onFastForwardClick = onFastForwardClick,
+                onNextClick = onNextClick,
+                onSearchClick = onSearchClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 2.dp, bottom = 10.dp)
+            )
+
+            // ── Swoosh curve at bottom ──
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(14.dp)
+            ) {
+                drawSwooshCurve()
+            }
+        }
+    }
+}
+
+// ── Brushed metal texture drawn via horizontal lines ───────────
+
+private fun DrawScope.drawBrushedMetalTexture() {
+    val lineSpacing = 2f
+    var y = 0f
+    while (y < size.height) {
+        val alpha = ((y / size.height) * 0.04f + 0.01f).coerceIn(0f, 0.06f)
+        drawLine(
+            color = Color.Black.copy(alpha = alpha),
+            start = Offset(0f, y),
+            end = Offset(size.width, y),
+            strokeWidth = 0.5f
+        )
+        y += lineSpacing
+    }
+    // Subtle top highlight
+    drawLine(
+        color = Color.White.copy(alpha = 0.6f),
+        start = Offset(0f, 0f),
+        end = Offset(size.width, 0f),
+        strokeWidth = 1.5f
+    )
+    // Bottom shadow
+    drawLine(
+        color = Color.Black.copy(alpha = 0.15f),
+        start = Offset(0f, size.height - 1f),
+        end = Offset(size.width, size.height - 1f),
+        strokeWidth = 1.5f
+    )
+}
+
+// ── Swoosh curve at bottom of the bar ──────────────────────────
+
+private fun DrawScope.drawSwooshCurve() {
+    val path = Path().apply {
+        moveTo(0f, size.height * 0.8f)
+        quadraticTo(
+            size.width * 0.5f, -size.height * 0.6f,
+            size.width, size.height * 0.8f
+        )
+    }
+    drawPath(
+        path = path,
+        color = Color.Black.copy(alpha = 0.08f),
+        style = Stroke(width = 1.5f)
+    )
+    // Second lighter swoosh
+    val path2 = Path().apply {
+        moveTo(0f, size.height * 0.9f)
+        quadraticTo(
+            size.width * 0.5f, -size.height * 0.3f,
+            size.width, size.height * 0.9f
+        )
+    }
+    drawPath(
+        path = path2,
+        color = Color.White.copy(alpha = 0.3f),
+        style = Stroke(width = 1f)
+    )
+}
+
+// ── Calculator-style Progress Bar ──────────────────────────────
+
+@Composable
+private fun CalculatorProgressBar(
+    progress: Float,
+    timeText: String,
+    modifier: Modifier = Modifier
+) {
+    var sliderPosition by remember { mutableFloatStateOf(progress) }
+    // Keep slider synced when not user-interacting
+    if (progress != sliderPosition) {
+        sliderPosition = progress
+    }
+
+    Box(
+        modifier = modifier
+            .height(36.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color.White)
+            .drawBehind {
+                // Inset border like the wireframe
+                drawRoundRect(
+                    color = Color(0xFF666666),
+                    size = size,
+                    cornerRadius = CornerRadius(4f, 4f),
+                    style = Stroke(width = 1.5f)
+                )
+                // Inner shadow
+                drawLine(
+                    color = Color(0xFFAAAAAA).copy(alpha = 0.5f),
+                    start = Offset(2f, 2f),
+                    end = Offset(size.width - 2f, 2f),
+                    strokeWidth = 1f
+                )
+            }
+    ) {
+        // Yellowish-white background fill
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(1.5.dp)
+                .background(ProgressBarBg)
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Timestamp display
+            Text(
+                text = timeText,
+                style = TextStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = Color(0xFF333333),
+                    letterSpacing = 1.sp
+                )
+            )
+
+            // Triangle marker
+            Canvas(modifier = Modifier.size(8.dp)) {
+                val path = Path().apply {
+                    moveTo(size.width / 2, 0f)
+                    lineTo(size.width, size.height)
+                    lineTo(0f, size.height)
+                    close()
+                }
+                drawPath(path, Color(0xFF333333))
+            }
+
+            // Seek slider
+            Slider(
+                value = sliderPosition,
+                onValueChange = { sliderPosition = it },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(20.dp),
+                colors = SliderDefaults.colors(
+                    thumbColor = Color(0xFF555555),
+                    activeTrackColor = Color(0xFF888888),
+                    inactiveTrackColor = Color(0xFFCCCCCC)
+                )
+            )
+        }
+    }
+}
+
+// ── Transport Controls Row ─────────────────────────────────────
+
+@Composable
+private fun TransportControlsRow(
+    isConverting: Boolean,
+    onPreviousClick: () -> Unit,
+    onRewindClick: () -> Unit,
+    onConvertClick: () -> Unit,
+    onFastForwardClick: () -> Unit,
+    onNextClick: () -> Unit,
+    onSearchClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Spacer(Modifier.weight(1f))
+
+        // Previous Track |◄
+        GlossyButton(
+            onClick = onPreviousClick,
+            size = 44,
+        ) {
+            PreviousTrackIcon()
+        }
+
+        Spacer(Modifier.width(8.dp))
+
+        // Rewind ◄◄
+        GlossyButton(
+            onClick = onRewindClick,
+            size = 44,
+        ) {
+            RewindIcon()
+        }
+
+        Spacer(Modifier.width(10.dp))
+
+        // Center Convert Button (larger)
+        ConvertButton(
+            isConverting = isConverting,
+            onClick = onConvertClick,
+        )
+
+        Spacer(Modifier.width(10.dp))
+
+        // Fast Forward ►►
+        GlossyButton(
+            onClick = onFastForwardClick,
+            size = 44,
+        ) {
+            FastForwardIcon()
+        }
+
+        Spacer(Modifier.width(8.dp))
+
+        // Next Track ►|
+        GlossyButton(
+            onClick = onNextClick,
+            size = 44,
+        ) {
+            NextTrackIcon()
+        }
+
+        Spacer(Modifier.weight(1f))
+
+        // Search button (right-aligned)
+        GlossyButton(
+            onClick = onSearchClick,
+            size = 40,
+        ) {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = "Search",
+                modifier = Modifier.size(20.dp),
+                tint = Color(0xFF444444)
+            )
+        }
+
+        Spacer(Modifier.width(4.dp))
+    }
+}
+
+// ── Glossy 3D Bubble Button ────────────────────────────────────
+
+@Composable
+private fun GlossyButton(
+    onClick: () -> Unit,
+    size: Int,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    Box(
+        modifier = modifier
+            .size(size.dp)
+            .shadow(
+                elevation = if (isPressed) 1.dp else 3.dp,
+                shape = CircleShape,
+                ambientColor = Color(0xFF888888),
+                spotColor = Color(0xFF666666)
+            )
+            .clip(CircleShape)
+            .background(if (isPressed) ButtonPressedGradient else ButtonGlossGradient)
+            .drawBehind { drawGlossyOverlay(isPressed) }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
+    }
+}
+
+private fun DrawScope.drawGlossyOverlay(isPressed: Boolean) {
+    // Outer ring
+    drawCircle(
+        color = Color(0xFF999999),
+        radius = size.minDimension / 2f,
+        style = Stroke(width = 1f)
+    )
+    // Inner highlight ring
+    drawCircle(
+        color = Color.White.copy(alpha = if (isPressed) 0.1f else 0.4f),
+        radius = size.minDimension / 2f - 2f,
+        style = Stroke(width = 0.8f)
+    )
+    // Top glossy highlight (half-moon)
+    if (!isPressed) {
+        val highlightPath = Path().apply {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val r = size.minDimension / 2f - 3f
+            arcTo(
+                rect = Rect(cx - r, cy - r, cx + r, cy + r),
+                startAngleDegrees = 200f,
+                sweepAngleDegrees = 140f,
+                forceMoveTo = true
+            )
+            quadraticTo(cx, cy - r * 0.1f, cx + r * 0.64f, cy - r * 0.77f)
+        }
+        drawPath(
+            path = highlightPath,
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.6f),
+                    Color.White.copy(alpha = 0.0f)
+                ),
+                startY = 0f,
+                endY = size.height * 0.55f
+            )
+        )
+    }
+}
+
+// ── Center Convert Button (larger, with music note + arrows) ──
+
+@Composable
+private fun ConvertButton(
+    isConverting: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val infiniteTransition = rememberInfiniteTransition(label = "convert")
+    val rotationAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "convertRotation"
+    )
+
+    val outerRingColor by animateColorAsState(
+        targetValue = if (isConverting) Color(0xFF888888) else Color(0xFF888888),
+        animationSpec = tween(300),
+        label = "ringColor"
+    )
+
+    Box(
+        modifier = modifier
+            .size(62.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // Outer ring
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(
+                color = Color(0xFFAAAAAA),
+                radius = size.minDimension / 2f,
+                style = Stroke(width = 3f)
+            )
+            drawCircle(
+                color = Color(0xFF888888),
+                radius = size.minDimension / 2f - 2f,
+                style = Stroke(width = 1f)
+            )
+        }
+
+        // Inner glossy button
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .shadow(
+                    elevation = if (isPressed) 1.dp else 4.dp,
+                    shape = CircleShape,
+                    ambientColor = Color(0xFF888888),
+                    spotColor = Color(0xFF666666)
+                )
+                .clip(CircleShape)
+                .background(if (isPressed) ButtonPressedGradient else ButtonGlossGradient)
+                .drawBehind { drawGlossyOverlay(isPressed) }
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            // Music note with circular arrows
+            Canvas(
+                modifier = Modifier.size(30.dp)
+            ) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+
+                // Draw circular arrows around music note
+                val arrowRadius = size.minDimension / 2f - 2f
+                val arrowColor = Color(0xFF444444)
+                val startAngle = if (isConverting) rotationAngle else 0f
+
+                // Top arc arrow
+                drawArc(
+                    color = arrowColor,
+                    startAngle = startAngle - 30f,
+                    sweepAngle = 150f,
+                    useCenter = false,
+                    topLeft = Offset(cx - arrowRadius, cy - arrowRadius),
+                    size = Size(arrowRadius * 2, arrowRadius * 2),
+                    style = Stroke(width = 2.5f)
+                )
+                // Top arrow head
+                val topArrowAngle = Math.toRadians((startAngle + 120.0))
+                val tax = cx + arrowRadius * cos(topArrowAngle).toFloat()
+                val tay = cy + arrowRadius * sin(topArrowAngle).toFloat()
+                drawArrowHead(tax, tay, (startAngle + 120f), arrowColor)
+
+                // Bottom arc arrow
+                drawArc(
+                    color = arrowColor,
+                    startAngle = startAngle + 150f,
+                    sweepAngle = 150f,
+                    useCenter = false,
+                    topLeft = Offset(cx - arrowRadius, cy - arrowRadius),
+                    size = Size(arrowRadius * 2, arrowRadius * 2),
+                    style = Stroke(width = 2.5f)
+                )
+                // Bottom arrow head
+                val botArrowAngle = Math.toRadians((startAngle + 300.0))
+                val bax = cx + arrowRadius * cos(botArrowAngle).toFloat()
+                val bay = cy + arrowRadius * sin(botArrowAngle).toFloat()
+                drawArrowHead(bax, bay, (startAngle + 300f), arrowColor)
+
+                // Music note (♫)
+                val noteColor = Color(0xFF333333)
+                // Note head 1
+                drawOval(
+                    color = noteColor,
+                    topLeft = Offset(cx - 5f, cy + 2f),
+                    size = Size(7f, 5f)
+                )
+                // Note head 2
+                drawOval(
+                    color = noteColor,
+                    topLeft = Offset(cx + 3f, cy + 4f),
+                    size = Size(7f, 5f)
+                )
+                // Stems
+                drawLine(
+                    color = noteColor,
+                    start = Offset(cx + 1.5f, cy + 4f),
+                    end = Offset(cx + 1.5f, cy - 7f),
+                    strokeWidth = 1.8f
+                )
+                drawLine(
+                    color = noteColor,
+                    start = Offset(cx + 9.5f, cy + 6f),
+                    end = Offset(cx + 9.5f, cy - 5f),
+                    strokeWidth = 1.8f
+                )
+                // Beam connecting stems
+                drawLine(
+                    color = noteColor,
+                    start = Offset(cx + 1.5f, cy - 7f),
+                    end = Offset(cx + 9.5f, cy - 5f),
+                    strokeWidth = 2.5f
+                )
+            }
+        }
+    }
+}
+
+private fun DrawScope.drawArrowHead(x: Float, y: Float, angleDegrees: Float, color: Color) {
+    val angle = Math.toRadians(angleDegrees.toDouble())
+    val headLen = 5f
+    val path = Path().apply {
+        moveTo(x, y)
+        lineTo(
+            x - headLen * cos(angle - PI / 6).toFloat(),
+            y - headLen * sin(angle - PI / 6).toFloat()
+        )
+        moveTo(x, y)
+        lineTo(
+            x - headLen * cos(angle + PI / 6).toFloat(),
+            y - headLen * sin(angle + PI / 6).toFloat()
+        )
+    }
+    drawPath(path, color, style = Stroke(width = 2f))
+}
+
+// ── Transport Icon Composables ─────────────────────────────────
+
+@Composable
+private fun PreviousTrackIcon() {
+    Canvas(modifier = Modifier.size(18.dp)) {
+        val color = Color(0xFF444444)
+        // Bar |
+        drawLine(
+            color = color,
+            start = Offset(3f, 4f),
+            end = Offset(3f, size.height - 4f),
+            strokeWidth = 3f
+        )
+        // Triangle ◄
+        val path = Path().apply {
+            moveTo(size.width - 2f, 4f)
+            lineTo(7f, size.height / 2f)
+            lineTo(size.width - 2f, size.height - 4f)
+            close()
+        }
+        drawPath(path, color)
+    }
+}
+
+@Composable
+private fun NextTrackIcon() {
+    Canvas(modifier = Modifier.size(18.dp)) {
+        val color = Color(0xFF444444)
+        // Triangle ►
+        val path = Path().apply {
+            moveTo(2f, 4f)
+            lineTo(size.width - 7f, size.height / 2f)
+            lineTo(2f, size.height - 4f)
+            close()
+        }
+        drawPath(path, color)
+        // Bar |
+        drawLine(
+            color = color,
+            start = Offset(size.width - 3f, 4f),
+            end = Offset(size.width - 3f, size.height - 4f),
+            strokeWidth = 3f
+        )
+    }
+}
+
+@Composable
+private fun RewindIcon() {
+    Canvas(modifier = Modifier.size(20.dp)) {
+        val color = Color(0xFF444444)
+        // First ◄
+        val path1 = Path().apply {
+            moveTo(size.width / 2f, 4f)
+            lineTo(2f, size.height / 2f)
+            lineTo(size.width / 2f, size.height - 4f)
+            close()
+        }
+        drawPath(path1, color)
+        // Second ◄
+        val path2 = Path().apply {
+            moveTo(size.width - 2f, 4f)
+            lineTo(size.width / 2f, size.height / 2f)
+            lineTo(size.width - 2f, size.height - 4f)
+            close()
+        }
+        drawPath(path2, color)
+    }
+}
+
+@Composable
+private fun FastForwardIcon() {
+    Canvas(modifier = Modifier.size(20.dp)) {
+        val color = Color(0xFF444444)
+        // First ►
+        val path1 = Path().apply {
+            moveTo(2f, 4f)
+            lineTo(size.width / 2f, size.height / 2f)
+            lineTo(2f, size.height - 4f)
+            close()
+        }
+        drawPath(path1, color)
+        // Second ►
+        val path2 = Path().apply {
+            moveTo(size.width / 2f, 4f)
+            lineTo(size.width - 2f, size.height / 2f)
+            lineTo(size.width / 2f, size.height - 4f)
+            close()
+        }
+        drawPath(path2, color)
+    }
+}
