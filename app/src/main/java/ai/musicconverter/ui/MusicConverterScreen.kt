@@ -8,13 +8,6 @@ import android.os.Environment
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,13 +23,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -54,7 +44,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -72,10 +61,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -87,7 +74,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import ai.musicconverter.data.ConversionStatus
 import ai.musicconverter.data.MusicFile
-import ai.musicconverter.ui.components.DigitalDisplay
+import ai.musicconverter.ui.components.BrushedMetalBottomBar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,6 +94,21 @@ fun MusicConverterScreen(
     val isConverting = uiState.isBatchConverting || uiState.musicFiles.any { it.isConverting }
     val pendingCount = uiState.musicFiles.count { it.needsConversion && !it.isConverting }
     val displayFiles = uiState.filteredFiles
+
+    val searchFocusRequester = remember { FocusRequester() }
+
+    // Compute conversion progress for the bottom bar
+    val conversionProgress = if (uiState.totalToConvert > 0) {
+        (uiState.convertedCount.toFloat() / uiState.totalToConvert).coerceIn(0f, 1f)
+    } else 0f
+
+    // Format elapsed time as HH:MM:SS (placeholder - shows converted/total)
+    val elapsedTimeText = String.format(
+        "%02d:%02d:%02d",
+        uiState.convertedCount / 3600,
+        (uiState.convertedCount % 3600) / 60,
+        uiState.convertedCount % 60
+    )
 
     // Permission launcher
     val storagePermissionLauncher = rememberLauncherForActivityResult(
@@ -181,6 +183,7 @@ fun MusicConverterScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(44.dp)
+                            .focusRequester(searchFocusRequester)
                     )
                 },
                 navigationIcon = {
@@ -199,11 +202,15 @@ fun MusicConverterScreen(
             )
         },
         bottomBar = {
-            ControlBar(
+            BrushedMetalBottomBar(
                 isConverting = isConverting,
-                songsInQueue = pendingCount,
-                onPlayClick = { showConvertConfirmDialog = true },
-                onPauseClick = { viewModel.cancelAllConversions() }
+                conversionProgress = conversionProgress,
+                elapsedTimeText = elapsedTimeText,
+                onConvertClick = {
+                    if (isConverting) viewModel.cancelAllConversions()
+                    else showConvertConfirmDialog = true
+                },
+                onSearchClick = { searchFocusRequester.requestFocus() }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -306,157 +313,8 @@ fun MusicConverterScreen(
 }
 
 // ──────────────────────────────────────────────────────────────
-// Bottom Control Bar: Play/Pause | Digital Display | Portal/Nuke
+// Bottom Control Bar: Brushed Metal (see BrushedMetalBottomBar)
 // ──────────────────────────────────────────────────────────────
-
-@Composable
-private fun ControlBar(
-    isConverting: Boolean,
-    songsInQueue: Int,
-    onPlayClick: () -> Unit,
-    onPauseClick: () -> Unit
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = Color(0xFF111111),
-        tonalElevation = 8.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Play / Pause button
-            PlayPauseButton(
-                isConverting = isConverting,
-                onPlayClick = onPlayClick,
-                onPauseClick = onPauseClick
-            )
-
-            // Digital Display (center, fills available space)
-            DigitalDisplay(
-                songsInQueue = songsInQueue,
-                isConverting = isConverting,
-                modifier = Modifier.weight(1f)
-            )
-
-            // Portal / Nuke indicator
-            PortalIndicator(isConverting = isConverting)
-        }
-    }
-}
-
-@Composable
-private fun PlayPauseButton(
-    isConverting: Boolean,
-    onPlayClick: () -> Unit,
-    onPauseClick: () -> Unit
-) {
-    val bgColor by animateColorAsState(
-        targetValue = if (isConverting) Color(0xFFCC3333) else Color(0xFF2A2A2A),
-        animationSpec = tween(300),
-        label = "playBg"
-    )
-
-    Surface(
-        onClick = { if (isConverting) onPauseClick() else onPlayClick() },
-        modifier = Modifier.size(48.dp),
-        shape = CircleShape,
-        color = bgColor,
-        tonalElevation = 4.dp
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = if (isConverting) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = if (isConverting) "Stop conversion" else "Start conversion",
-                tint = Color.White,
-                modifier = Modifier.size(28.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun PortalIndicator(isConverting: Boolean) {
-    val infiniteTransition = rememberInfiniteTransition(label = "portal")
-    val portalRotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
-    )
-    val portalPulse by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse"
-    )
-
-    Box(
-        modifier = Modifier.size(48.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        if (isConverting) {
-            // Nuke / radioactive symbol when converting
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .scale(portalPulse)
-                    .rotate(portalRotation)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                Color(0xFFFFDD00),
-                                Color(0xFFFF8800),
-                                Color(0xFFCC4400)
-                            )
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                // Radioactive trefoil
-                Text(
-                    text = "\u2622",
-                    fontSize = 24.sp,
-                    color = Color.Black,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.rotate(-portalRotation)
-                )
-            }
-        } else {
-            // Closed portal: dark inert circle
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF2A2A2A)),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF1A1A1A))
-                )
-                Box(
-                    modifier = Modifier
-                        .size(4.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF3A3A3A))
-                )
-            }
-        }
-    }
-}
 
 // ──────────────────────────────────────────────────────────────
 // Condensed Media Table List
