@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -31,7 +32,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,11 +42,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
@@ -61,10 +59,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -74,7 +74,15 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import ai.musicconverter.data.ConversionStatus
 import ai.musicconverter.data.MusicFile
+import ai.musicconverter.ui.components.AluminumVariant
 import ai.musicconverter.ui.components.BrushedMetalBottomBar
+import ai.musicconverter.ui.components.GelButton
+import ai.musicconverter.ui.components.aluminumBackgroundModifier
+import kotlinx.coroutines.delay
+
+// Bone/off-white background for file listing
+private val BoneWhite = Color(0xFFF5F0E6)
+private val BoneDivider = Color(0xFFDDD8CE)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,7 +93,7 @@ fun MusicConverterScreen(
     val autoConvertEnabled by viewModel.autoConvertEnabled.collectAsState()
     val keepOriginalEnabled by viewModel.keepOriginalEnabled.collectAsState()
     val context = LocalContext.current
-    val snackbarHostState = remember { SnackbarHostState() }
+    val view = LocalView.current
 
     var showConvertConfirmDialog by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
@@ -97,18 +105,48 @@ fun MusicConverterScreen(
 
     val searchFocusRequester = remember { FocusRequester() }
 
-    // Compute conversion progress for the bottom bar
     val conversionProgress = if (uiState.totalToConvert > 0) {
         (uiState.convertedCount.toFloat() / uiState.totalToConvert).coerceIn(0f, 1f)
     } else 0f
 
-    // Format elapsed time as HH:MM:SS (placeholder - shows converted/total)
     val elapsedTimeText = String.format(
         "%02d:%02d:%02d",
         uiState.convertedCount / 3600,
         (uiState.convertedCount % 3600) / 60,
         uiState.convertedCount % 60
     )
+
+    // Notification text for calculator display (replaces toasts/snackbars)
+    var notificationText by remember { mutableStateOf<String?>(null) }
+
+    // Show errors in calculator display instead of snackbar
+    LaunchedEffect(uiState.error) {
+        uiState.error?.let { error ->
+            notificationText = error
+            view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+            delay(4000)
+            notificationText = null
+            viewModel.clearError()
+        }
+    }
+
+    // Show completion notification
+    LaunchedEffect(uiState.status) {
+        if (uiState.status == ConversionStatus.COMPLETED) {
+            notificationText = "Conversion complete!"
+            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            delay(3000)
+            notificationText = null
+        }
+    }
+
+    // Auto-dismiss aluminum variant notification
+    LaunchedEffect(notificationText) {
+        if (notificationText?.startsWith("Aluminum:") == true) {
+            delay(2000)
+            notificationText = null
+        }
+    }
 
     // Permission launcher
     val storagePermissionLauncher = rememberLauncherForActivityResult(
@@ -140,18 +178,10 @@ fun MusicConverterScreen(
         }
     }
 
-    LaunchedEffect(uiState.error) {
-        uiState.error?.let { error ->
-            snackbarHostState.showSnackbar(error)
-            viewModel.clearError()
-        }
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    // Search field
                     TextField(
                         value = uiState.searchQuery,
                         onValueChange = { viewModel.updateSearchQuery(it) },
@@ -159,11 +189,7 @@ fun MusicConverterScreen(
                             Text("Search...", style = MaterialTheme.typography.bodyMedium)
                         },
                         leadingIcon = {
-                            Icon(
-                                Icons.Default.Search,
-                                contentDescription = "Search",
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(20.dp))
                         },
                         trailingIcon = {
                             if (uiState.searchQuery.isNotEmpty()) {
@@ -174,12 +200,12 @@ fun MusicConverterScreen(
                         },
                         singleLine = true,
                         colors = TextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                            focusedContainerColor = Color.White.copy(alpha = 0.4f),
+                            unfocusedContainerColor = Color.White.copy(alpha = 0.25f),
                             focusedIndicatorColor = Color.Transparent,
                             unfocusedIndicatorColor = Color.Transparent
                         ),
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(44.dp)
@@ -191,13 +217,13 @@ fun MusicConverterScreen(
                         Icon(
                             Icons.Default.Settings,
                             contentDescription = "Settings",
-                            tint = if (autoConvertEnabled) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (autoConvertEnabled) Color(0xFF4444CC) else Color(0xFF555555)
                         )
                     }
                 },
+                modifier = Modifier.then(aluminumBackgroundModifier()),
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    containerColor = Color.Transparent
                 )
             )
         },
@@ -206,24 +232,29 @@ fun MusicConverterScreen(
                 isConverting = isConverting,
                 conversionProgress = conversionProgress,
                 elapsedTimeText = elapsedTimeText,
+                notificationText = notificationText,
                 onConvertClick = {
                     if (isConverting) viewModel.cancelAllConversions()
                     else showConvertConfirmDialog = true
                 },
-                onSearchClick = { searchFocusRequester.requestFocus() }
+                onSearchClick = { searchFocusRequester.requestFocus() },
+                onVariantChanged = { variant ->
+                    notificationText = "Aluminum: ${variant.name}"
+                }
             )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        }
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .background(BoneWhite)
         ) {
             when {
                 !hasManageStoragePermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
                     PermissionRequestContent(
                         onRequestPermission = {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
                                 data = Uri.parse("package:${context.packageName}")
                             }
@@ -234,6 +265,7 @@ fun MusicConverterScreen(
                 !uiState.hasStoragePermission -> {
                     PermissionRequestContent(
                         onRequestPermission = {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                 storagePermissionLauncher.launch(arrayOf(Manifest.permission.READ_MEDIA_AUDIO))
                             } else {
@@ -257,10 +289,7 @@ fun MusicConverterScreen(
                     )
                 }
                 else -> {
-                    CondensedMediaList(
-                        files = displayFiles,
-                        totalFiles = uiState.musicFiles.size
-                    )
+                    CondensedMediaList(files = displayFiles, totalFiles = uiState.musicFiles.size)
                 }
             }
         }
@@ -284,13 +313,15 @@ fun MusicConverterScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = {
+                GelButton(onClick = {
                     showConvertConfirmDialog = false
                     viewModel.convertAllFiles()
-                }) { Text("Convert") }
+                }) { Text("Convert", fontWeight = FontWeight.Bold, color = Color(0xFF444444)) }
             },
             dismissButton = {
-                TextButton(onClick = { showConvertConfirmDialog = false }) { Text("Cancel") }
+                GelButton(onClick = { showConvertConfirmDialog = false }) {
+                    Text("Cancel", color = Color(0xFF666666))
+                }
             }
         )
     }
@@ -299,7 +330,24 @@ fun MusicConverterScreen(
     if (showSettingsSheet) {
         ModalBottomSheet(
             onDismissRequest = { showSettingsSheet = false },
-            sheetState = settingsSheetState
+            sheetState = settingsSheetState,
+            containerColor = BoneWhite,
+            dragHandle = {
+                // Aluminum-styled drag handle
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(aluminumBackgroundModifier())
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 40.dp, height = 4.dp)
+                            .background(Color(0xFF999999), RoundedCornerShape(2.dp))
+                    )
+                }
+            }
         ) {
             SettingsSheetContent(
                 autoConvertEnabled = autoConvertEnabled,
@@ -313,34 +361,22 @@ fun MusicConverterScreen(
 }
 
 // ──────────────────────────────────────────────────────────────
-// Bottom Control Bar: Brushed Metal (see BrushedMetalBottomBar)
-// ──────────────────────────────────────────────────────────────
-
-// ──────────────────────────────────────────────────────────────
-// Condensed Media Table List
+// Condensed Media Table List (bone background)
 // ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun CondensedMediaList(
-    files: List<MusicFile>,
-    totalFiles: Int
-) {
+private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // Table header
         MediaTableHeader()
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        HorizontalDivider(color = BoneDivider)
 
-        // File rows
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(0.dp)
         ) {
             items(files, key = { it.id }) { file ->
                 MediaTableRow(file = file)
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                    thickness = 0.5.dp
-                )
+                HorizontalDivider(color = BoneDivider.copy(alpha = 0.6f), thickness = 0.5.dp)
             }
         }
     }
@@ -351,51 +387,20 @@ private fun MediaTableHeader() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .background(BoneWhite.copy(alpha = 0.8f))
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = "Name",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = "Time",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(52.dp),
-            textAlign = TextAlign.End,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = "Track #",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(60.dp),
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = "Artist",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(80.dp),
-            textAlign = TextAlign.End,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Text("Name", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), color = Color(0xFF555555))
+        Text("Time", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.width(52.dp), textAlign = TextAlign.End, color = Color(0xFF555555))
+        Text("Track #", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.width(60.dp), textAlign = TextAlign.Center, color = Color(0xFF555555))
+        Text("Artist", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.width(80.dp), textAlign = TextAlign.End, color = Color(0xFF555555))
     }
 }
 
 @Composable
 private fun MediaTableRow(file: MusicFile) {
-    val bgColor = if (file.isConverting) {
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
-    } else {
-        Color.Transparent
-    }
+    val bgColor = if (file.isConverting) Color(0xFFE8E2D4) else Color.Transparent
 
     Row(
         modifier = Modifier
@@ -404,57 +409,16 @@ private fun MediaTableRow(file: MusicFile) {
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Name + converting indicator
-        Row(
-            modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = file.name,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false)
-            )
+        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false), color = Color(0xFF333333))
             if (file.isConverting) {
                 Spacer(modifier = Modifier.width(6.dp))
-                CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color(0xFF666666))
             }
         }
-
-        // Time
-        Text(
-            text = file.displayDuration,
-            style = MaterialTheme.typography.bodyMedium,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.width(52.dp),
-            textAlign = TextAlign.End,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        // Track #
-        Text(
-            text = file.displayTrack,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.width(60.dp),
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        // Artist
-        Text(
-            text = file.artist ?: "",
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(80.dp),
-            textAlign = TextAlign.End,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Text(file.displayDuration, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.width(52.dp), textAlign = TextAlign.End, color = Color(0xFF666666))
+        Text(file.displayTrack, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(60.dp), textAlign = TextAlign.Center, color = Color(0xFF666666))
+        Text(file.artist ?: "", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(80.dp), textAlign = TextAlign.End, color = Color(0xFF666666))
     }
 }
 
@@ -473,77 +437,60 @@ private fun SettingsSheetContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .background(BoneWhite)
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .padding(bottom = 32.dp)
     ) {
-        Text(
-            "Settings",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Settings", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF333333))
+            GelButton(onClick = onDismiss) {
+                Text("Done", fontWeight = FontWeight.Bold, color = Color(0xFF444444), fontSize = 14.sp)
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Auto-convert toggle
         SettingsToggleCard(
             title = "Auto-Convert Service",
-            description = if (autoConvertEnabled) "Automatically converts new audio files"
-            else "Manual conversion only",
+            description = if (autoConvertEnabled) "Automatically converts new audio files" else "Manual conversion only",
             checked = autoConvertEnabled,
             onToggle = onToggleAutoConvert
         )
-
         Spacer(modifier = Modifier.height(12.dp))
-
-        // Keep original files toggle
         SettingsToggleCard(
             title = "Keep Original Files",
-            description = if (keepOriginalEnabled) "Converted files saved next to originals"
-            else "Originals deleted, saved to Music/Converted",
+            description = if (keepOriginalEnabled) "Converted files saved next to originals" else "Originals deleted, saved to Music/Converted",
             checked = keepOriginalEnabled,
             onToggle = onToggleKeepOriginal
         )
-
         Spacer(modifier = Modifier.height(16.dp))
         Text(
             "When auto-convert is enabled, the app monitors for new audio files and converts them to AAC format in the background.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = Color(0xFF777777)
         )
     }
 }
 
 @Composable
-private fun SettingsToggleCard(
-    title: String,
-    description: String,
-    checked: Boolean,
-    onToggle: () -> Unit
-) {
+private fun SettingsToggleCard(title: String, description: String, checked: Boolean, onToggle: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (checked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-            else MaterialTheme.colorScheme.surfaceVariant
+            containerColor = if (checked) Color(0xFFE8E2D4) else Color(0xFFF0EDE6)
         )
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
             }
             Spacer(modifier = Modifier.width(12.dp))
             Switch(checked = checked, onCheckedChange = { onToggle() })
@@ -552,38 +499,25 @@ private fun SettingsToggleCard(
 }
 
 // ──────────────────────────────────────────────────────────────
-// Utility screens
+// Utility screens (flat buttons, no rounded pill shapes)
 // ──────────────────────────────────────────────────────────────
 
 @Composable
 private fun PermissionRequestContent(onRequestPermission: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
+        modifier = Modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(
-            Icons.Default.MusicNote,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
+        Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color(0xFF888888))
         Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            "Storage Permission Required",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
-        )
+        Text("Storage Permission Required", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFF333333))
         Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            "This app needs access to your storage to find and convert music files.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Text("This app needs access to your storage to find and convert music files.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF777777), textAlign = TextAlign.Center)
         Spacer(modifier = Modifier.height(24.dp))
-        Button(onClick = onRequestPermission) { Text("Grant Permission") }
+        GelButton(onClick = onRequestPermission) {
+            Text("Grant Permission", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF444444))
+        }
     }
 }
 
@@ -594,38 +528,27 @@ private fun LoadingContent(message: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        CircularProgressIndicator()
+        CircularProgressIndicator(color = Color(0xFF888888))
         Spacer(modifier = Modifier.height(16.dp))
-        Text(message)
+        Text(message, color = Color(0xFF555555))
     }
 }
 
 @Composable
 private fun EmptyContent(message: String, onRefresh: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
+        modifier = Modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(
-            Icons.Default.MusicNote,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-        )
+        Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color(0xFFAAAAAA))
         Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            message,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Text(message, style = MaterialTheme.typography.bodyLarge, color = Color(0xFF777777))
         Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onRefresh) {
-            Icon(Icons.Default.Refresh, contentDescription = null)
+        GelButton(onClick = onRefresh) {
+            Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF444444))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Refresh")
+            Text("Refresh", color = Color(0xFF444444), fontWeight = FontWeight.Bold)
         }
     }
 }

@@ -85,6 +85,9 @@ dependencies {
     // Core
     implementation("androidx.core:core-ktx:1.15.0")
 
+    // Splash Screen
+    implementation("androidx.core:core-splashscreen:1.0.1")
+
     // Timber for logging
     implementation("com.jakewharton.timber:timber:5.0.1")
 

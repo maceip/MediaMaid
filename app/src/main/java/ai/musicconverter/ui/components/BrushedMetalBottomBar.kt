@@ -2,6 +2,7 @@ package ai.musicconverter.ui.components
 
 import android.graphics.RuntimeShader
 import android.os.Build
+import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -36,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,6 +55,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -62,13 +65,15 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-// ── AGSL: Two-tone brushed aluminum with ridgeline ─────────────
+// ── Three AGSL shader variants ─────────────────────────────────
+
+enum class AluminumVariant { COOL, NEUTRAL, WARM }
 
 @Suppress("ConstPropertyName")
-private const val AGSL_TWO_TONE_ALUMINUM = """
+private const val AGSL_ALUMINUM_COOL = """
     uniform float2 size;
     uniform float3 lightPos;
-    uniform float ridgeY;         // 0..1 fraction where ridge sits
+    uniform float ridgeY;
 
     float hash(float2 p) {
         return fract(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453);
@@ -76,64 +81,108 @@ private const val AGSL_TWO_TONE_ALUMINUM = """
 
     half4 main(float2 fragCoord) {
         float2 uv = fragCoord / size;
-
-        // Fine-grained horizontal scratches
-        float grain = hash(float2(fragCoord.x * 0.03, fragCoord.y * 12.0));
-
-        // Specular sheen
+        float grain = hash(float2(fragCoord.x * 0.03, fragCoord.y * 14.0));
         float distToLight = distance(fragCoord.x, lightPos.x * size.x);
         float sheen = exp(-0.004 * distToLight);
 
-        // Two-tone: lighter above ridgeY, darker below
-        float3 lightAlum = float3(0.80, 0.82, 0.84);
-        float3 darkAlum  = float3(0.68, 0.70, 0.73);
+        // Cool blue-silver: lighter above ridge, darker below
+        float3 lightAlum = float3(0.78, 0.81, 0.86);
+        float3 darkAlum  = float3(0.60, 0.63, 0.68);
 
-        // Smooth blend at the ridge boundary
-        float blend = smoothstep(ridgeY - 0.03, ridgeY + 0.03, uv.y);
+        // HARD split at ridgeline with narrow transition
+        float blend = smoothstep(ridgeY - 0.01, ridgeY + 0.01, uv.y);
         float3 baseColor = mix(lightAlum, darkAlum, blend);
-
-        float3 finalColor = baseColor + (grain * 0.06) + (sheen * lightPos.z);
-
+        float3 finalColor = baseColor + (grain * 0.05) + (sheen * lightPos.z);
         return half4(finalColor, 1.0);
     }
 """
 
-// ── Fallback two-tone gradient for API < 33 ───────────────────
+@Suppress("ConstPropertyName")
+private const val AGSL_ALUMINUM_NEUTRAL = """
+    uniform float2 size;
+    uniform float3 lightPos;
+    uniform float ridgeY;
 
-private val FallbackTwoToneGradient = Brush.verticalGradient(
-    colorStops = arrayOf(
-        0.0f to Color(0xFFD8D8DA),
-        0.15f to Color(0xFFE2E2E4),
-        0.45f to Color(0xFFDCDCDE),
-        0.65f to Color(0xFFD2D2D4),  // ridge transition
-        0.72f to Color(0xFFBBBBBE),
-        0.85f to Color(0xFFB0B0B4),
-        1.0f to Color(0xFFA8A8AC),
+    float hash(float2 p) {
+        return fract(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453);
+    }
+
+    half4 main(float2 fragCoord) {
+        float2 uv = fragCoord / size;
+        float grain = hash(float2(fragCoord.x * 0.03, fragCoord.y * 14.0));
+        float distToLight = distance(fragCoord.x, lightPos.x * size.x);
+        float sheen = exp(-0.004 * distToLight);
+
+        // Pure silver: lighter above, darker below
+        float3 lightAlum = float3(0.82, 0.82, 0.83);
+        float3 darkAlum  = float3(0.64, 0.64, 0.66);
+
+        float blend = smoothstep(ridgeY - 0.01, ridgeY + 0.01, uv.y);
+        float3 baseColor = mix(lightAlum, darkAlum, blend);
+        float3 finalColor = baseColor + (grain * 0.05) + (sheen * lightPos.z);
+        return half4(finalColor, 1.0);
+    }
+"""
+
+@Suppress("ConstPropertyName")
+private const val AGSL_ALUMINUM_WARM = """
+    uniform float2 size;
+    uniform float3 lightPos;
+    uniform float ridgeY;
+
+    float hash(float2 p) {
+        return fract(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453);
+    }
+
+    half4 main(float2 fragCoord) {
+        float2 uv = fragCoord / size;
+        float grain = hash(float2(fragCoord.x * 0.03, fragCoord.y * 14.0));
+        float distToLight = distance(fragCoord.x, lightPos.x * size.x);
+        float sheen = exp(-0.004 * distToLight);
+
+        // Warm champagne-silver: lighter above, darker below
+        float3 lightAlum = float3(0.84, 0.82, 0.79);
+        float3 darkAlum  = float3(0.66, 0.64, 0.61);
+
+        float blend = smoothstep(ridgeY - 0.01, ridgeY + 0.01, uv.y);
+        float3 baseColor = mix(lightAlum, darkAlum, blend);
+        float3 finalColor = baseColor + (grain * 0.05) + (sheen * lightPos.z);
+        return half4(finalColor, 1.0);
+    }
+"""
+
+// ── Fallback gradients per variant ─────────────────────────────
+
+private fun fallbackGradient(variant: AluminumVariant): Brush {
+    val (light, dark) = when (variant) {
+        AluminumVariant.COOL -> Color(0xFFCDD2DB) to Color(0xFF9CA1AA)
+        AluminumVariant.NEUTRAL -> Color(0xFFD4D4D6) to Color(0xFFA4A4A8)
+        AluminumVariant.WARM -> Color(0xFFD8D4CF) to Color(0xFFA8A49F)
+    }
+    return Brush.verticalGradient(
+        colorStops = arrayOf(
+            0.0f to light,
+            0.64f to light,
+            0.68f to dark,
+            1.0f to dark,
+        )
     )
-)
+}
 
 // ── Button gradients ───────────────────────────────────────────
 
 private val ButtonGlossGradient = Brush.verticalGradient(
     colors = listOf(
-        Color(0xFFF8F8F8),
-        Color(0xFFEEEEEE),
-        Color(0xFFD8D8D8),
-        Color(0xFFC0C0C0),
-        Color(0xFFB4B4B4),
+        Color(0xFFF8F8F8), Color(0xFFEEEEEE), Color(0xFFD8D8D8),
+        Color(0xFFC0C0C0), Color(0xFFB4B4B4),
     )
 )
 
 private val ButtonPressedGradient = Brush.verticalGradient(
     colors = listOf(
-        Color(0xFFB0B0B0),
-        Color(0xFFBBBBBB),
-        Color(0xFFC5C5C5),
-        Color(0xFFBEBEBE),
+        Color(0xFFB0B0B0), Color(0xFFBBBBBB), Color(0xFFC5C5C5), Color(0xFFBEBEBE),
     )
 )
-
-// ── Chrome bezel border brush ──────────────────────────────────
 
 private val ChromeBezelBrush = Brush.linearGradient(
     colors = listOf(Color.White, Color.Gray, Color.White),
@@ -141,27 +190,131 @@ private val ChromeBezelBrush = Brush.linearGradient(
     end = Offset.Infinite
 )
 
-private val ProgressBarBg = Color(0xFFFAF6E8) // Warm cream/ivory like the wireframe
+// ── Clear Gel gradients ────────────────────────────────────────
 
-// Ridgeline sits at ~65% of total bar height (buttons above, darker below)
+private val GelGradient = Brush.verticalGradient(
+    colors = listOf(
+        Color(0x60FFFFFF), // top: bright translucent white
+        Color(0x30F0F0F4), // upper-mid: faint cool tint
+        Color(0x18D8D8E0), // mid: barely there
+        Color(0x25C8C8D0), // lower-mid: subtle density
+        Color(0x35BBBBC4), // bottom: slightly denser
+    )
+)
+
+private val GelPressedGradient = Brush.verticalGradient(
+    colors = listOf(
+        Color(0x30D0D0D8),
+        Color(0x40C4C4CC),
+        Color(0x38D0D0D8),
+        Color(0x28C8C8D0),
+    )
+)
+
+private val GelBezelBrush = Brush.linearGradient(
+    colors = listOf(
+        Color(0xBBFFFFFF), Color(0x55AAAAAA), Color(0x88DDDDDD), Color(0x55AAAAAA), Color(0xBBFFFFFF),
+    ),
+    start = Offset.Zero,
+    end = Offset.Infinite
+)
+
+// ── Public Gel Button ──────────────────────────────────────────
+
+/**
+ * Rectangular button with slightly rounded corners and clear gel material.
+ * Designed to match the skeuomorphic style of the bottom bar transport buttons
+ * but in a wider, rectangular form for use on permission/empty screens.
+ */
+@Composable
+fun GelButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val gelShape = RoundedCornerShape(10.dp)
+
+    Box(
+        modifier = modifier
+            .shadow(
+                elevation = if (isPressed) 1.dp else 6.dp,
+                shape = gelShape,
+                ambientColor = Color(0x44666666),
+                spotColor = Color(0x55444444)
+            )
+            .clip(gelShape)
+            .background(if (isPressed) GelPressedGradient else GelGradient)
+            .border(0.75.dp, GelBezelBrush, gelShape)
+            .drawBehind { drawGelOverlay(isPressed) }
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) { content() }
+}
+
+private val ProgressBarBg = Color(0xFFFAF6E8)
 private const val RIDGE_Y_FRACTION = 0.68f
+
+// ── Reusable aluminum background modifier (for top bar too) ────
+
+@Composable
+fun aluminumBackgroundModifier(variant: AluminumVariant = AluminumVariant.NEUTRAL): Modifier {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val shaderSrc = when (variant) {
+            AluminumVariant.COOL -> AGSL_ALUMINUM_COOL
+            AluminumVariant.NEUTRAL -> AGSL_ALUMINUM_NEUTRAL
+            AluminumVariant.WARM -> AGSL_ALUMINUM_WARM
+        }
+        val shader = remember(variant) { RuntimeShader(shaderSrc) }
+        Modifier.drawWithCache {
+            shader.setFloatUniform("size", size.width, size.height)
+            shader.setFloatUniform("lightPos", 0.45f, 0.2f, 0.12f)
+            shader.setFloatUniform("ridgeY", 1.0f) // no split for top bar
+            val shaderBrush = ShaderBrush(shader)
+            onDrawBehind {
+                drawRect(brush = shaderBrush)
+                drawLine(Color.White.copy(alpha = 0.7f), Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 1.5f)
+            }
+        }
+    } else {
+        Modifier
+            .background(fallbackGradient(variant))
+            .drawBehind { drawFallbackTexture() }
+    }
+}
+
+// ── Notification display text (replaces snackbar/toast) ────────
+
+/**
+ * Call this to get the display text for the calculator-style progress bar.
+ * When there's a notification, it overrides the elapsed time.
+ */
 
 // ── Main Bottom Bar ────────────────────────────────────────────
 
 @Composable
 fun BrushedMetalBottomBar(
     isConverting: Boolean,
-    conversionProgress: Float, // 0f..1f
-    elapsedTimeText: String,   // "00:00:00"
+    conversionProgress: Float,
+    elapsedTimeText: String,
+    notificationText: String? = null,
     onConvertClick: () -> Unit,
     onSearchClick: () -> Unit,
+    onVariantChanged: (AluminumVariant) -> Unit = {},
     onPreviousClick: () -> Unit = {},
     onRewindClick: () -> Unit = {},
     onFastForwardClick: () -> Unit = {},
     onNextClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val view = LocalView.current
     val barShape = RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp)
+
+    // Aluminum variant state - switchable via transport buttons (debug)
+    var variantIndex by remember { mutableIntStateOf(1) } // 0=cool, 1=neutral, 2=warm
+    val currentVariant = AluminumVariant.entries[variantIndex]
 
     Box(
         modifier = modifier
@@ -172,100 +325,81 @@ fun BrushedMetalBottomBar(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(twoToneAluminumBackground())
+                .then(twoToneAluminumModifier(currentVariant))
         ) {
-            // ── Progress indicator ──
+            // ── Progress / notification display ──
             CalculatorProgressBar(
                 progress = conversionProgress,
-                timeText = elapsedTimeText,
+                timeText = notificationText ?: elapsedTimeText,
+                isNotification = notificationText != null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp)
                     .padding(top = 8.dp, bottom = 4.dp)
             )
 
-            // ── Mini shelf: tiny recessed ledge ──
-            MiniShelf(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 6.dp)
-            )
+            // ── Mini shelf ──
+            MiniShelf(Modifier.fillMaxWidth().padding(horizontal = 6.dp))
 
-            // ── Transport controls (lighter aluminum zone) ──
+            // ── Transport controls ──
             TransportControlsRow(
                 isConverting = isConverting,
-                onPreviousClick = onPreviousClick,
-                onRewindClick = onRewindClick,
-                onConvertClick = onConvertClick,
-                onFastForwardClick = onFastForwardClick,
-                onNextClick = onNextClick,
-                onSearchClick = onSearchClick,
+                onPreviousClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    variantIndex = 0 // COOL
+                    onVariantChanged(AluminumVariant.COOL)
+                    onPreviousClick()
+                },
+                onRewindClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    onRewindClick()
+                },
+                onConvertClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    variantIndex = 1 // NEUTRAL
+                    onVariantChanged(AluminumVariant.NEUTRAL)
+                    onConvertClick()
+                },
+                onFastForwardClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    onFastForwardClick()
+                },
+                onNextClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    variantIndex = 2 // WARM
+                    onVariantChanged(AluminumVariant.WARM)
+                    onNextClick()
+                },
+                onSearchClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    onSearchClick()
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp)
                     .padding(top = 4.dp, bottom = 6.dp)
             )
 
-            // ── Ridgeline: curved ridge separating tones ──
-            Canvas(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-            ) {
-                drawRidgeline()
-            }
+            // ── Ridgeline ──
+            Canvas(Modifier.fillMaxWidth().height(8.dp)) { drawRidgeline() }
 
-            // ── Darker aluminum zone below ridge ──
-            Spacer(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(16.dp)
-            )
+            // ── Darker zone below ridge ──
+            Spacer(Modifier.fillMaxWidth().height(16.dp))
         }
     }
 }
 
-// ── Mini Shelf: recessed ledge between display and buttons ─────
+// ── Two-tone aluminum modifier ─────────────────────────────────
 
 @Composable
-private fun MiniShelf(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier.height(5.dp)
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            // Top shadow line (inset)
-            drawLine(
-                color = Color.Black.copy(alpha = 0.12f),
-                start = Offset(8f, 0f),
-                end = Offset(size.width - 8f, 0f),
-                strokeWidth = 1f
-            )
-            // Bright edge below it (highlight from light hitting ledge)
-            drawLine(
-                color = Color.White.copy(alpha = 0.5f),
-                start = Offset(8f, 2f),
-                end = Offset(size.width - 8f, 2f),
-                strokeWidth = 1f
-            )
-            // Bottom shadow of shelf
-            drawLine(
-                color = Color.Black.copy(alpha = 0.06f),
-                start = Offset(8f, 4f),
-                end = Offset(size.width - 8f, 4f),
-                strokeWidth = 0.5f
-            )
-        }
-    }
-}
-
-// ── Two-tone AGSL aluminum (API 33+) or fallback ──────────────
-
-@Composable
-private fun twoToneAluminumBackground(): Modifier {
+private fun twoToneAluminumModifier(variant: AluminumVariant): Modifier {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        val shader = remember {
-            RuntimeShader(AGSL_TWO_TONE_ALUMINUM)
+        val shaderSrc = when (variant) {
+            AluminumVariant.COOL -> AGSL_ALUMINUM_COOL
+            AluminumVariant.NEUTRAL -> AGSL_ALUMINUM_NEUTRAL
+            AluminumVariant.WARM -> AGSL_ALUMINUM_WARM
         }
+        val shader = remember(variant) { RuntimeShader(shaderSrc) }
         Modifier.drawWithCache {
             shader.setFloatUniform("size", size.width, size.height)
             shader.setFloatUniform("lightPos", 0.45f, 0.2f, 0.12f)
@@ -273,171 +407,116 @@ private fun twoToneAluminumBackground(): Modifier {
             val shaderBrush = ShaderBrush(shader)
             onDrawBehind {
                 drawRect(brush = shaderBrush)
-                // Top edge highlight
-                drawLine(
-                    color = Color.White.copy(alpha = 0.7f),
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width, 0f),
-                    strokeWidth = 1.5f
-                )
+                drawLine(Color.White.copy(alpha = 0.7f), Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 1.5f)
             }
         }
     } else {
         Modifier
-            .background(FallbackTwoToneGradient)
+            .background(fallbackGradient(variant))
             .drawBehind { drawFallbackTexture() }
     }
 }
 
+// ── Mini Shelf ─────────────────────────────────────────────────
+
+@Composable
+private fun MiniShelf(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.height(5.dp)) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawLine(Color.Black.copy(alpha = 0.12f), Offset(8f, 0f), Offset(size.width - 8f, 0f), strokeWidth = 1f)
+            drawLine(Color.White.copy(alpha = 0.5f), Offset(8f, 2f), Offset(size.width - 8f, 2f), strokeWidth = 1f)
+            drawLine(Color.Black.copy(alpha = 0.06f), Offset(8f, 4f), Offset(size.width - 8f, 4f), strokeWidth = 0.5f)
+        }
+    }
+}
+
 private fun DrawScope.drawFallbackTexture() {
-    // Horizontal grain lines
     val lineSpacing = 1.5f
     var y = 0f
     while (y < size.height) {
         val alpha = ((y / size.height) * 0.03f + 0.01f).coerceIn(0f, 0.05f)
-        drawLine(
-            color = Color.Black.copy(alpha = alpha),
-            start = Offset(0f, y),
-            end = Offset(size.width, y),
-            strokeWidth = 0.5f
-        )
+        drawLine(Color.Black.copy(alpha = alpha), Offset(0f, y), Offset(size.width, y), strokeWidth = 0.5f)
         y += lineSpacing
     }
-    drawLine(
-        color = Color.White.copy(alpha = 0.7f),
-        start = Offset(0f, 0f),
-        end = Offset(size.width, 0f),
-        strokeWidth = 1.5f
-    )
+    drawLine(Color.White.copy(alpha = 0.7f), Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 1.5f)
 }
 
-// ── Ridgeline: curved ridge between lighter/darker zones ──────
+// ── Ridgeline ──────────────────────────────────────────────────
 
 private fun DrawScope.drawRidgeline() {
-    // Shadow below the ridge (darker side)
     val shadowPath = Path().apply {
         moveTo(0f, size.height * 0.5f)
-        quadraticTo(
-            size.width * 0.5f, -size.height * 1.5f,
-            size.width, size.height * 0.5f
-        )
+        quadraticTo(size.width * 0.5f, -size.height * 1.5f, size.width, size.height * 0.5f)
     }
-    drawPath(
-        path = shadowPath,
-        color = Color.Black.copy(alpha = 0.15f),
-        style = Stroke(width = 2f)
-    )
-    // Bright highlight on top of ridge (light catching the edge)
+    drawPath(shadowPath, Color.Black.copy(alpha = 0.18f), style = Stroke(width = 2.5f))
     val highlightPath = Path().apply {
-        moveTo(0f, size.height * 0.4f)
-        quadraticTo(
-            size.width * 0.5f, -size.height * 1.8f,
-            size.width, size.height * 0.4f
-        )
+        moveTo(0f, size.height * 0.35f)
+        quadraticTo(size.width * 0.5f, -size.height * 2.0f, size.width, size.height * 0.35f)
     }
-    drawPath(
-        path = highlightPath,
-        color = Color.White.copy(alpha = 0.45f),
-        style = Stroke(width = 1.5f)
-    )
+    drawPath(highlightPath, Color.White.copy(alpha = 0.5f), style = Stroke(width = 1.5f))
 }
 
-// ── Calculator-style Progress Bar ──────────────────────────────
+// ── Calculator-style Progress Bar / Notification Display ───────
 
 @Composable
 private fun CalculatorProgressBar(
     progress: Float,
     timeText: String,
+    isNotification: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var sliderPosition by remember { mutableFloatStateOf(progress) }
-    if (progress != sliderPosition) {
-        sliderPosition = progress
-    }
+    if (progress != sliderPosition) sliderPosition = progress
 
     Box(
         modifier = modifier
             .height(32.dp)
-            .shadow(
-                elevation = 2.dp,
-                shape = RoundedCornerShape(6.dp),
-                ambientColor = Color(0xFF666666),
-                spotColor = Color(0xFF444444)
-            )
+            .shadow(2.dp, RoundedCornerShape(6.dp), ambientColor = Color(0xFF666666), spotColor = Color(0xFF444444))
             .clip(RoundedCornerShape(6.dp))
             .background(ProgressBarBg)
-            .border(
-                width = 1.dp,
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF999999),
-                        Color(0xFFBBBBBB),
-                        Color(0xFF888888)
-                    ),
-                    start = Offset.Zero,
-                    end = Offset.Infinite
-                ),
-                shape = RoundedCornerShape(6.dp)
-            )
+            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF999999), Color(0xFFBBBBBB), Color(0xFF888888)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
             .drawBehind {
-                // Inset shadow at top
-                drawLine(
-                    color = Color.Black.copy(alpha = 0.15f),
-                    start = Offset(4f, 1f),
-                    end = Offset(size.width - 4f, 1f),
-                    strokeWidth = 1.5f
-                )
-                // Inner highlight at bottom
-                drawLine(
-                    color = Color.White.copy(alpha = 0.3f),
-                    start = Offset(4f, size.height - 2f),
-                    end = Offset(size.width - 4f, size.height - 2f),
-                    strokeWidth = 0.5f
-                )
+                drawLine(Color.Black.copy(alpha = 0.15f), Offset(4f, 1f), Offset(size.width - 4f, 1f), strokeWidth = 1.5f)
+                drawLine(Color.White.copy(alpha = 0.3f), Offset(4f, size.height - 2f), Offset(size.width - 4f, size.height - 2f), strokeWidth = 0.5f)
             }
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 6.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // LCD timestamp
             Text(
                 text = timeText,
                 style = TextStyle(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
-                    color = Color(0xFF222222),
+                    color = if (isNotification) Color(0xFF8B4513) else Color(0xFF222222),
                     letterSpacing = 2.sp
-                )
+                ),
+                maxLines = 1
             )
 
-            // Triangle marker
-            Canvas(modifier = Modifier.size(7.dp)) {
-                val path = Path().apply {
-                    moveTo(size.width / 2, 0f)
-                    lineTo(size.width, size.height)
-                    lineTo(0f, size.height)
-                    close()
+            if (!isNotification) {
+                Canvas(modifier = Modifier.size(7.dp)) {
+                    val path = Path().apply {
+                        moveTo(size.width / 2, 0f); lineTo(size.width, size.height); lineTo(0f, size.height); close()
+                    }
+                    drawPath(path, Color(0xFF222222))
                 }
-                drawPath(path, Color(0xFF222222))
-            }
 
-            // Seek slider
-            Slider(
-                value = sliderPosition,
-                onValueChange = { sliderPosition = it },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(18.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = Color(0xFF555555),
-                    activeTrackColor = Color(0xFF777777),
-                    inactiveTrackColor = Color(0xFFCCCCCC)
+                Slider(
+                    value = sliderPosition,
+                    onValueChange = { sliderPosition = it },
+                    modifier = Modifier.weight(1f).height(18.dp),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFF555555),
+                        activeTrackColor = Color(0xFF777777),
+                        inactiveTrackColor = Color(0xFFCCCCCC)
+                    )
                 )
-            )
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
         }
     }
 }
@@ -455,13 +534,8 @@ private fun TransportControlsRow(
     onSearchClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.weight(1f))
-
         GlossyButton(onClick = onPreviousClick, size = 44) { PreviousTrackIcon() }
         Spacer(Modifier.width(8.dp))
         GlossyButton(onClick = onRewindClick, size = 44) { RewindIcon() }
@@ -471,355 +545,203 @@ private fun TransportControlsRow(
         GlossyButton(onClick = onFastForwardClick, size = 44) { FastForwardIcon() }
         Spacer(Modifier.width(8.dp))
         GlossyButton(onClick = onNextClick, size = 44) { NextTrackIcon() }
-
         Spacer(Modifier.weight(1f))
-
         GlossyButton(onClick = onSearchClick, size = 40) {
-            Icon(
-                Icons.Default.Search,
-                contentDescription = "Search",
-                modifier = Modifier.size(20.dp),
-                tint = Color(0xFF444444)
-            )
+            Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(20.dp), tint = Color(0xFF444444))
         }
         Spacer(Modifier.width(4.dp))
     }
 }
 
-// ── Glossy 3D Bubble Button (improved material) ────────────────
+// ── Glossy 3D Bubble Button ────────────────────────────────────
 
 @Composable
-private fun GlossyButton(
-    onClick: () -> Unit,
-    size: Int,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
+private fun GlossyButton(onClick: () -> Unit, size: Int, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
     Box(
         modifier = modifier
             .size(size.dp)
-            .shadow(
-                elevation = if (isPressed) 1.dp else 4.dp,
-                shape = CircleShape,
-                ambientColor = Color(0xFF777777),
-                spotColor = Color(0xFF555555)
-            )
+            .shadow(if (isPressed) 1.dp else 4.dp, CircleShape, ambientColor = Color(0xFF777777), spotColor = Color(0xFF555555))
             .clip(CircleShape)
             .background(if (isPressed) ButtonPressedGradient else ButtonGlossGradient)
-            .border(
-                width = 0.5.dp,
-                brush = ChromeBezelBrush,
-                shape = CircleShape
-            )
+            .border(0.5.dp, ChromeBezelBrush, CircleShape)
             .drawBehind { drawGlossyOverlay(isPressed) }
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            ),
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
-    ) {
-        content()
-    }
+    ) { content() }
 }
 
 private fun DrawScope.drawGlossyOverlay(isPressed: Boolean) {
-    // Outer chrome ring
     drawCircle(
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                Color(0xFFCCCCCC),
-                Color(0xFF888888),
-                Color(0xFFAAAAAA),
-            )
-        ),
-        radius = size.minDimension / 2f,
-        style = Stroke(width = 1.2f)
+        Brush.verticalGradient(listOf(Color(0xFFCCCCCC), Color(0xFF888888), Color(0xFFAAAAAA))),
+        radius = size.minDimension / 2f, style = Stroke(width = 1.2f)
     )
-
-    // Top glossy specular highlight (half-moon)
     if (!isPressed) {
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        val r = size.minDimension / 2f - 3f
-
+        val cx = size.width / 2f; val cy = size.height / 2f; val r = size.minDimension / 2f - 3f
         val highlightPath = Path().apply {
-            arcTo(
-                rect = Rect(cx - r, cy - r, cx + r, cy + r),
-                startAngleDegrees = 195f,
-                sweepAngleDegrees = 150f,
-                forceMoveTo = true
-            )
+            arcTo(Rect(cx - r, cy - r, cx + r, cy + r), 195f, 150f, true)
             quadraticTo(cx, cy - r * 0.2f, cx + r * 0.7f, cy - r * 0.7f)
         }
+        drawPath(highlightPath, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0.0f)), startY = 0f, endY = size.height * 0.5f))
+    }
+    val cx = size.width / 2f; val cy = size.height / 2f; val r = size.minDimension / 2f - 2f
+    val shadowPath = Path().apply {
+        arcTo(Rect(cx - r, cy - r, cx + r, cy + r), 20f, 140f, true)
+        quadraticTo(cx, cy + r * 0.5f, cx - r * 0.6f, cy + r * 0.8f)
+    }
+    drawPath(shadowPath, Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = if (isPressed) 0.04f else 0.12f)), startY = size.height * 0.55f, endY = size.height))
+}
+
+// ── Gel overlay for rectangular clear gel buttons ────────────────
+
+private fun DrawScope.drawGelOverlay(isPressed: Boolean) {
+    val w = size.width; val h = size.height; val r = 10f
+
+    // Top specular highlight — bright arc reflection like light hitting clear gel
+    if (!isPressed) {
+        val highlightPath = Path().apply {
+            moveTo(r + 4f, 3f)
+            quadraticTo(w / 2f, -h * 0.15f, w - r - 4f, 3f)
+            lineTo(w - r - 8f, h * 0.28f)
+            quadraticTo(w / 2f, h * 0.12f, r + 8f, h * 0.28f)
+            close()
+        }
         drawPath(
-            path = highlightPath,
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.85f),
-                    Color.White.copy(alpha = 0.0f)
-                ),
-                startY = 0f,
-                endY = size.height * 0.5f
+            highlightPath,
+            Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = 0.75f), Color.White.copy(alpha = 0.0f)),
+                startY = 0f, endY = h * 0.35f
             )
         )
     }
 
-    // Bottom shadow crescent for 3D convexity
-    val cx = size.width / 2f
-    val cy = size.height / 2f
-    val r = size.minDimension / 2f - 2f
-    val shadowPath = Path().apply {
-        arcTo(
-            rect = Rect(cx - r, cy - r, cx + r, cy + r),
-            startAngleDegrees = 20f,
-            sweepAngleDegrees = 140f,
-            forceMoveTo = true
+    // Inner glow — subtle refraction caustic along bottom edge
+    drawLine(
+        Color.White.copy(alpha = if (isPressed) 0.15f else 0.35f),
+        Offset(r + 4f, h - 2.5f),
+        Offset(w - r - 4f, h - 2.5f),
+        strokeWidth = 1f
+    )
+
+    // Side glints — tiny vertical highlights near left and right edges
+    if (!isPressed) {
+        drawLine(
+            Color.White.copy(alpha = 0.25f),
+            Offset(2f, h * 0.2f),
+            Offset(2f, h * 0.7f),
+            strokeWidth = 0.8f
         )
-        quadraticTo(cx, cy + r * 0.5f, cx - r * 0.6f, cy + r * 0.8f)
+        drawLine(
+            Color.White.copy(alpha = 0.18f),
+            Offset(w - 2f, h * 0.25f),
+            Offset(w - 2f, h * 0.65f),
+            strokeWidth = 0.8f
+        )
+    }
+
+    // Bottom shadow accumulation — gel is denser at the bottom
+    val bottomShadow = Path().apply {
+        moveTo(r, h)
+        lineTo(w - r, h)
+        lineTo(w - r, h * 0.75f)
+        quadraticTo(w / 2f, h * 0.85f, r, h * 0.75f)
+        close()
     }
     drawPath(
-        path = shadowPath,
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                Color.Transparent,
-                Color.Black.copy(alpha = if (isPressed) 0.04f else 0.12f)
-            ),
-            startY = size.height * 0.55f,
-            endY = size.height
+        bottomShadow,
+        Brush.verticalGradient(
+            listOf(Color.Transparent, Color.Black.copy(alpha = if (isPressed) 0.02f else 0.06f)),
+            startY = h * 0.7f, endY = h
         )
     )
 }
 
-// ── Center Convert Button (larger icon) ────────────────────────
+// ── Center Convert Button ──────────────────────────────────────
 
 @Composable
-private fun ConvertButton(
-    isConverting: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
+private fun ConvertButton(isConverting: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-
     val infiniteTransition = rememberInfiniteTransition(label = "convert")
-    val rotationAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "convertRotation"
-    )
+    val rotationAngle by infiniteTransition.animateFloat(0f, 360f, infiniteRepeatable(tween(2000, easing = LinearEasing), RepeatMode.Restart), label = "rot")
 
-    Box(
-        modifier = modifier.size(66.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        // Outer chrome ring
+    Box(modifier = modifier.size(66.dp), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            drawCircle(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFE0E0E0),
-                        Color(0xFF909090),
-                        Color(0xFFBBBBBB),
-                    )
-                ),
-                radius = size.minDimension / 2f,
-                style = Stroke(width = 5f)
-            )
-            drawCircle(
-                color = Color.White.copy(alpha = 0.35f),
-                radius = size.minDimension / 2f + 1f,
-                style = Stroke(width = 0.5f)
-            )
+            drawCircle(Brush.verticalGradient(listOf(Color(0xFFE0E0E0), Color(0xFF909090), Color(0xFFBBBBBB))), size.minDimension / 2f, style = Stroke(5f))
+            drawCircle(Color.White.copy(alpha = 0.35f), size.minDimension / 2f + 1f, style = Stroke(0.5f))
         }
-
-        // Inner glossy button
         Box(
-            modifier = Modifier
-                .size(54.dp)
-                .shadow(
-                    elevation = if (isPressed) 1.dp else 5.dp,
-                    shape = CircleShape,
-                    ambientColor = Color(0xFF777777),
-                    spotColor = Color(0xFF555555)
-                )
+            modifier = Modifier.size(54.dp)
+                .shadow(if (isPressed) 1.dp else 5.dp, CircleShape, ambientColor = Color(0xFF777777), spotColor = Color(0xFF555555))
                 .clip(CircleShape)
                 .background(if (isPressed) ButtonPressedGradient else ButtonGlossGradient)
-                .border(
-                    width = 0.5.dp,
-                    brush = ChromeBezelBrush,
-                    shape = CircleShape
-                )
+                .border(0.5.dp, ChromeBezelBrush, CircleShape)
                 .drawBehind { drawGlossyOverlay(isPressed) }
-                .clickable(
-                    interactionSource = interactionSource,
-                    indication = null,
-                    onClick = onClick
-                ),
+                .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
-            // Music note + circular arrows - LARGER canvas
             Canvas(modifier = Modifier.size(38.dp)) {
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val arrowRadius = size.minDimension / 2f - 3f
-                val arrowColor = Color(0xFF3A3A3A)
-                val startAngle = if (isConverting) rotationAngle else 0f
+                val cx = size.width / 2f; val cy = size.height / 2f
+                val arrowR = size.minDimension / 2f - 3f; val ac = Color(0xFF3A3A3A)
+                val sa = if (isConverting) rotationAngle else 0f
 
-                // Top arc arrow
-                drawArc(
-                    color = arrowColor,
-                    startAngle = startAngle - 30f,
-                    sweepAngle = 150f,
-                    useCenter = false,
-                    topLeft = Offset(cx - arrowRadius, cy - arrowRadius),
-                    size = Size(arrowRadius * 2, arrowRadius * 2),
-                    style = Stroke(width = 2.8f)
-                )
-                val topAngleRad = Math.toRadians((startAngle + 120.0))
-                val tax = cx + arrowRadius * cos(topAngleRad).toFloat()
-                val tay = cy + arrowRadius * sin(topAngleRad).toFloat()
-                drawArrowHead(tax, tay, startAngle + 120f, arrowColor)
+                drawArc(ac, sa - 30f, 150f, false, Offset(cx - arrowR, cy - arrowR), Size(arrowR * 2, arrowR * 2), style = Stroke(2.8f))
+                val ta = Math.toRadians((sa + 120.0)); drawArrowHead(cx + arrowR * cos(ta).toFloat(), cy + arrowR * sin(ta).toFloat(), sa + 120f, ac)
+                drawArc(ac, sa + 150f, 150f, false, Offset(cx - arrowR, cy - arrowR), Size(arrowR * 2, arrowR * 2), style = Stroke(2.8f))
+                val ba = Math.toRadians((sa + 300.0)); drawArrowHead(cx + arrowR * cos(ba).toFloat(), cy + arrowR * sin(ba).toFloat(), sa + 300f, ac)
 
-                // Bottom arc arrow
-                drawArc(
-                    color = arrowColor,
-                    startAngle = startAngle + 150f,
-                    sweepAngle = 150f,
-                    useCenter = false,
-                    topLeft = Offset(cx - arrowRadius, cy - arrowRadius),
-                    size = Size(arrowRadius * 2, arrowRadius * 2),
-                    style = Stroke(width = 2.8f)
-                )
-                val botAngleRad = Math.toRadians((startAngle + 300.0))
-                val bax = cx + arrowRadius * cos(botAngleRad).toFloat()
-                val bay = cy + arrowRadius * sin(botAngleRad).toFloat()
-                drawArrowHead(bax, bay, startAngle + 300f, arrowColor)
-
-                // Music note (♫) - scaled up
-                val noteColor = Color(0xFF2A2A2A)
-                val s = 1.3f // scale factor
-                // Note head 1
-                drawOval(
-                    color = noteColor,
-                    topLeft = Offset(cx - 6f * s, cy + 2f * s),
-                    size = Size(9f * s, 6f * s)
-                )
-                // Note head 2
-                drawOval(
-                    color = noteColor,
-                    topLeft = Offset(cx + 2f * s, cy + 4f * s),
-                    size = Size(9f * s, 6f * s)
-                )
-                // Stem 1
-                drawLine(
-                    color = noteColor,
-                    start = Offset(cx + 1.5f * s, cy + 5f * s),
-                    end = Offset(cx + 1.5f * s, cy - 8f * s),
-                    strokeWidth = 2.2f
-                )
-                // Stem 2
-                drawLine(
-                    color = noteColor,
-                    start = Offset(cx + 10f * s, cy + 7f * s),
-                    end = Offset(cx + 10f * s, cy - 6f * s),
-                    strokeWidth = 2.2f
-                )
-                // Beam
-                drawLine(
-                    color = noteColor,
-                    start = Offset(cx + 1.5f * s, cy - 8f * s),
-                    end = Offset(cx + 10f * s, cy - 6f * s),
-                    strokeWidth = 3f
-                )
+                val nc = Color(0xFF2A2A2A); val s = 1.3f
+                drawOval(nc, Offset(cx - 6f * s, cy + 2f * s), Size(9f * s, 6f * s))
+                drawOval(nc, Offset(cx + 2f * s, cy + 4f * s), Size(9f * s, 6f * s))
+                drawLine(nc, Offset(cx + 1.5f * s, cy + 5f * s), Offset(cx + 1.5f * s, cy - 8f * s), 2.2f)
+                drawLine(nc, Offset(cx + 10f * s, cy + 7f * s), Offset(cx + 10f * s, cy - 6f * s), 2.2f)
+                drawLine(nc, Offset(cx + 1.5f * s, cy - 8f * s), Offset(cx + 10f * s, cy - 6f * s), 3f)
             }
         }
     }
 }
 
-private fun DrawScope.drawArrowHead(x: Float, y: Float, angleDegrees: Float, color: Color) {
-    val angle = Math.toRadians(angleDegrees.toDouble())
-    val headLen = 6f
+private fun DrawScope.drawArrowHead(x: Float, y: Float, deg: Float, color: Color) {
+    val a = Math.toRadians(deg.toDouble()); val l = 6f
     val path = Path().apply {
-        moveTo(x, y)
-        lineTo(
-            x - headLen * cos(angle - PI / 6).toFloat(),
-            y - headLen * sin(angle - PI / 6).toFloat()
-        )
-        moveTo(x, y)
-        lineTo(
-            x - headLen * cos(angle + PI / 6).toFloat(),
-            y - headLen * sin(angle + PI / 6).toFloat()
-        )
+        moveTo(x, y); lineTo(x - l * cos(a - PI / 6).toFloat(), y - l * sin(a - PI / 6).toFloat())
+        moveTo(x, y); lineTo(x - l * cos(a + PI / 6).toFloat(), y - l * sin(a + PI / 6).toFloat())
     }
-    drawPath(path, color, style = Stroke(width = 2.5f))
+    drawPath(path, color, style = Stroke(2.5f))
 }
 
-// ── Transport Icon Composables ─────────────────────────────────
+// ── Transport Icons ────────────────────────────────────────────
 
 @Composable
 private fun PreviousTrackIcon() {
-    Canvas(modifier = Modifier.size(18.dp)) {
-        val color = Color(0xFF3A3A3A)
-        drawLine(color, Offset(3f, 4f), Offset(3f, size.height - 4f), strokeWidth = 3f)
-        val path = Path().apply {
-            moveTo(size.width - 2f, 4f)
-            lineTo(7f, size.height / 2f)
-            lineTo(size.width - 2f, size.height - 4f)
-            close()
-        }
-        drawPath(path, color)
+    Canvas(Modifier.size(18.dp)) { val c = Color(0xFF3A3A3A)
+        drawLine(c, Offset(3f, 4f), Offset(3f, size.height - 4f), 3f)
+        drawPath(Path().apply { moveTo(size.width - 2f, 4f); lineTo(7f, size.height / 2f); lineTo(size.width - 2f, size.height - 4f); close() }, c)
     }
 }
 
 @Composable
 private fun NextTrackIcon() {
-    Canvas(modifier = Modifier.size(18.dp)) {
-        val color = Color(0xFF3A3A3A)
-        val path = Path().apply {
-            moveTo(2f, 4f)
-            lineTo(size.width - 7f, size.height / 2f)
-            lineTo(2f, size.height - 4f)
-            close()
-        }
-        drawPath(path, color)
-        drawLine(color, Offset(size.width - 3f, 4f), Offset(size.width - 3f, size.height - 4f), strokeWidth = 3f)
+    Canvas(Modifier.size(18.dp)) { val c = Color(0xFF3A3A3A)
+        drawPath(Path().apply { moveTo(2f, 4f); lineTo(size.width - 7f, size.height / 2f); lineTo(2f, size.height - 4f); close() }, c)
+        drawLine(c, Offset(size.width - 3f, 4f), Offset(size.width - 3f, size.height - 4f), 3f)
     }
 }
 
 @Composable
 private fun RewindIcon() {
-    Canvas(modifier = Modifier.size(20.dp)) {
-        val color = Color(0xFF3A3A3A)
-        val path1 = Path().apply {
-            moveTo(size.width / 2f, 4f); lineTo(2f, size.height / 2f); lineTo(size.width / 2f, size.height - 4f); close()
-        }
-        drawPath(path1, color)
-        val path2 = Path().apply {
-            moveTo(size.width - 2f, 4f); lineTo(size.width / 2f, size.height / 2f); lineTo(size.width - 2f, size.height - 4f); close()
-        }
-        drawPath(path2, color)
+    Canvas(Modifier.size(20.dp)) { val c = Color(0xFF3A3A3A)
+        drawPath(Path().apply { moveTo(size.width / 2f, 4f); lineTo(2f, size.height / 2f); lineTo(size.width / 2f, size.height - 4f); close() }, c)
+        drawPath(Path().apply { moveTo(size.width - 2f, 4f); lineTo(size.width / 2f, size.height / 2f); lineTo(size.width - 2f, size.height - 4f); close() }, c)
     }
 }
 
 @Composable
 private fun FastForwardIcon() {
-    Canvas(modifier = Modifier.size(20.dp)) {
-        val color = Color(0xFF3A3A3A)
-        val path1 = Path().apply {
-            moveTo(2f, 4f); lineTo(size.width / 2f, size.height / 2f); lineTo(2f, size.height - 4f); close()
-        }
-        drawPath(path1, color)
-        val path2 = Path().apply {
-            moveTo(size.width / 2f, 4f); lineTo(size.width - 2f, size.height / 2f); lineTo(size.width / 2f, size.height - 4f); close()
-        }
-        drawPath(path2, color)
+    Canvas(Modifier.size(20.dp)) { val c = Color(0xFF3A3A3A)
+        drawPath(Path().apply { moveTo(2f, 4f); lineTo(size.width / 2f, size.height / 2f); lineTo(2f, size.height - 4f); close() }, c)
+        drawPath(Path().apply { moveTo(size.width / 2f, 4f); lineTo(size.width - 2f, size.height / 2f); lineTo(size.width / 2f, size.height - 4f); close() }, c)
     }
 }
