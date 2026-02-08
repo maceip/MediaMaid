@@ -302,6 +302,7 @@ fun BrushedMetalBottomBar(
     notificationText: String? = null,
     onConvertClick: () -> Unit,
     onSearchClick: () -> Unit,
+    onVariantChanged: (AluminumVariant) -> Unit = {},
     onPreviousClick: () -> Unit = {},
     onRewindClick: () -> Unit = {},
     onFastForwardClick: () -> Unit = {},
@@ -346,6 +347,7 @@ fun BrushedMetalBottomBar(
                 onPreviousClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     variantIndex = 0 // COOL
+                    onVariantChanged(AluminumVariant.COOL)
                     onPreviousClick()
                 },
                 onRewindClick = {
@@ -355,6 +357,7 @@ fun BrushedMetalBottomBar(
                 onConvertClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                     variantIndex = 1 // NEUTRAL
+                    onVariantChanged(AluminumVariant.NEUTRAL)
                     onConvertClick()
                 },
                 onFastForwardClick = {
@@ -364,6 +367,7 @@ fun BrushedMetalBottomBar(
                 onNextClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     variantIndex = 2 // WARM
+                    onVariantChanged(AluminumVariant.WARM)
                     onNextClick()
                 },
                 onSearchClick = {

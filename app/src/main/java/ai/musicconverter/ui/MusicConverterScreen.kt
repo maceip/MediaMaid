@@ -44,7 +44,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import ai.musicconverter.data.ConversionStatus
 import ai.musicconverter.data.MusicFile
+import ai.musicconverter.ui.components.AluminumVariant
 import ai.musicconverter.ui.components.BrushedMetalBottomBar
 import ai.musicconverter.ui.components.GelButton
 import ai.musicconverter.ui.components.aluminumBackgroundModifier
@@ -135,6 +136,14 @@ fun MusicConverterScreen(
             notificationText = "Conversion complete!"
             view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
             delay(3000)
+            notificationText = null
+        }
+    }
+
+    // Auto-dismiss aluminum variant notification
+    LaunchedEffect(notificationText) {
+        if (notificationText?.startsWith("Aluminum:") == true) {
+            delay(2000)
             notificationText = null
         }
     }
@@ -212,15 +221,7 @@ fun MusicConverterScreen(
                         )
                     }
                 },
-                modifier = Modifier.drawBehind {
-                    // Aluminum-style background for top bar
-                    val topBarGrad = listOf(Color(0xFFD4D4D6), Color(0xFFDEDEE0), Color(0xFFD8D8DA))
-                    val brush = androidx.compose.ui.graphics.Brush.verticalGradient(topBarGrad)
-                    drawRect(brush)
-                    // Bottom edge shadow
-                    drawLine(Color.Black.copy(alpha = 0.12f), androidx.compose.ui.geometry.Offset(0f, size.height - 1f), androidx.compose.ui.geometry.Offset(size.width, size.height - 1f), strokeWidth = 1f)
-                    drawLine(Color.White.copy(alpha = 0.5f), androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Offset(size.width, 0f), strokeWidth = 1f)
-                },
+                modifier = Modifier.then(aluminumBackgroundModifier()),
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent
                 )
@@ -236,7 +237,10 @@ fun MusicConverterScreen(
                     if (isConverting) viewModel.cancelAllConversions()
                     else showConvertConfirmDialog = true
                 },
-                onSearchClick = { searchFocusRequester.requestFocus() }
+                onSearchClick = { searchFocusRequester.requestFocus() },
+                onVariantChanged = { variant ->
+                    notificationText = "Aluminum: ${variant.name}"
+                }
             )
         }
     ) { paddingValues ->
@@ -309,13 +313,15 @@ fun MusicConverterScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
+                GelButton(onClick = {
                     showConvertConfirmDialog = false
                     viewModel.convertAllFiles()
-                }) { Text("Convert") }
+                }) { Text("Convert", fontWeight = FontWeight.Bold, color = Color(0xFF444444)) }
             },
             dismissButton = {
-                TextButton(onClick = { showConvertConfirmDialog = false }) { Text("Cancel") }
+                GelButton(onClick = { showConvertConfirmDialog = false }) {
+                    Text("Cancel", color = Color(0xFF666666))
+                }
             }
         )
     }
@@ -324,7 +330,24 @@ fun MusicConverterScreen(
     if (showSettingsSheet) {
         ModalBottomSheet(
             onDismissRequest = { showSettingsSheet = false },
-            sheetState = settingsSheetState
+            sheetState = settingsSheetState,
+            containerColor = BoneWhite,
+            dragHandle = {
+                // Aluminum-styled drag handle
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(aluminumBackgroundModifier())
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 40.dp, height = 4.dp)
+                            .background(Color(0xFF999999), RoundedCornerShape(2.dp))
+                    )
+                }
+            }
         ) {
             SettingsSheetContent(
                 autoConvertEnabled = autoConvertEnabled,
@@ -414,10 +437,21 @@ private fun SettingsSheetContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .background(BoneWhite)
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .padding(bottom = 32.dp)
     ) {
-        Text("Settings", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Settings", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF333333))
+            GelButton(onClick = onDismiss) {
+                Text("Done", fontWeight = FontWeight.Bold, color = Color(0xFF444444), fontSize = 14.sp)
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
 
         SettingsToggleCard(
             title = "Auto-Convert Service",
@@ -436,7 +470,7 @@ private fun SettingsSheetContent(
         Text(
             "When auto-convert is enabled, the app monitors for new audio files and converts them to AAC format in the background.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = Color(0xFF777777)
         )
     }
 }
