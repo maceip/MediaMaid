@@ -190,6 +190,70 @@ private val ChromeBezelBrush = Brush.linearGradient(
     end = Offset.Infinite
 )
 
+// ── Clear Gel gradients ────────────────────────────────────────
+
+private val GelGradient = Brush.verticalGradient(
+    colors = listOf(
+        Color(0x60FFFFFF), // top: bright translucent white
+        Color(0x30F0F0F4), // upper-mid: faint cool tint
+        Color(0x18D8D8E0), // mid: barely there
+        Color(0x25C8C8D0), // lower-mid: subtle density
+        Color(0x35BBBBC4), // bottom: slightly denser
+    )
+)
+
+private val GelPressedGradient = Brush.verticalGradient(
+    colors = listOf(
+        Color(0x30D0D0D8),
+        Color(0x40C4C4CC),
+        Color(0x38D0D0D8),
+        Color(0x28C8C8D0),
+    )
+)
+
+private val GelBezelBrush = Brush.linearGradient(
+    colors = listOf(
+        Color(0xBBFFFFFF), Color(0x55AAAAAA), Color(0x88DDDDDD), Color(0x55AAAAAA), Color(0xBBFFFFFF),
+    ),
+    start = Offset.Zero,
+    end = Offset.Infinite
+)
+
+// ── Public Gel Button ──────────────────────────────────────────
+
+/**
+ * Rectangular button with slightly rounded corners and clear gel material.
+ * Designed to match the skeuomorphic style of the bottom bar transport buttons
+ * but in a wider, rectangular form for use on permission/empty screens.
+ */
+@Composable
+fun GelButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val gelShape = RoundedCornerShape(10.dp)
+
+    Box(
+        modifier = modifier
+            .shadow(
+                elevation = if (isPressed) 1.dp else 6.dp,
+                shape = gelShape,
+                ambientColor = Color(0x44666666),
+                spotColor = Color(0x55444444)
+            )
+            .clip(gelShape)
+            .background(if (isPressed) GelPressedGradient else GelGradient)
+            .border(0.75.dp, GelBezelBrush, gelShape)
+            .drawBehind { drawGelOverlay(isPressed) }
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) { content() }
+}
+
 private val ProgressBarBg = Color(0xFFFAF6E8)
 private const val RIDGE_Y_FRACTION = 0.68f
 
@@ -524,6 +588,70 @@ private fun DrawScope.drawGlossyOverlay(isPressed: Boolean) {
         quadraticTo(cx, cy + r * 0.5f, cx - r * 0.6f, cy + r * 0.8f)
     }
     drawPath(shadowPath, Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = if (isPressed) 0.04f else 0.12f)), startY = size.height * 0.55f, endY = size.height))
+}
+
+// ── Gel overlay for rectangular clear gel buttons ────────────────
+
+private fun DrawScope.drawGelOverlay(isPressed: Boolean) {
+    val w = size.width; val h = size.height; val r = 10f
+
+    // Top specular highlight — bright arc reflection like light hitting clear gel
+    if (!isPressed) {
+        val highlightPath = Path().apply {
+            moveTo(r + 4f, 3f)
+            quadraticTo(w / 2f, -h * 0.15f, w - r - 4f, 3f)
+            lineTo(w - r - 8f, h * 0.28f)
+            quadraticTo(w / 2f, h * 0.12f, r + 8f, h * 0.28f)
+            close()
+        }
+        drawPath(
+            highlightPath,
+            Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = 0.75f), Color.White.copy(alpha = 0.0f)),
+                startY = 0f, endY = h * 0.35f
+            )
+        )
+    }
+
+    // Inner glow — subtle refraction caustic along bottom edge
+    drawLine(
+        Color.White.copy(alpha = if (isPressed) 0.15f else 0.35f),
+        Offset(r + 4f, h - 2.5f),
+        Offset(w - r - 4f, h - 2.5f),
+        strokeWidth = 1f
+    )
+
+    // Side glints — tiny vertical highlights near left and right edges
+    if (!isPressed) {
+        drawLine(
+            Color.White.copy(alpha = 0.25f),
+            Offset(2f, h * 0.2f),
+            Offset(2f, h * 0.7f),
+            strokeWidth = 0.8f
+        )
+        drawLine(
+            Color.White.copy(alpha = 0.18f),
+            Offset(w - 2f, h * 0.25f),
+            Offset(w - 2f, h * 0.65f),
+            strokeWidth = 0.8f
+        )
+    }
+
+    // Bottom shadow accumulation — gel is denser at the bottom
+    val bottomShadow = Path().apply {
+        moveTo(r, h)
+        lineTo(w - r, h)
+        lineTo(w - r, h * 0.75f)
+        quadraticTo(w / 2f, h * 0.85f, r, h * 0.75f)
+        close()
+    }
+    drawPath(
+        bottomShadow,
+        Brush.verticalGradient(
+            listOf(Color.Transparent, Color.Black.copy(alpha = if (isPressed) 0.02f else 0.06f)),
+            startY = h * 0.7f, endY = h
+        )
+    )
 }
 
 // ── Center Convert Button ──────────────────────────────────────

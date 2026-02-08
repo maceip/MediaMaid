@@ -75,6 +75,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import ai.musicconverter.data.ConversionStatus
 import ai.musicconverter.data.MusicFile
 import ai.musicconverter.ui.components.BrushedMetalBottomBar
+import ai.musicconverter.ui.components.GelButton
 import ai.musicconverter.ui.components.aluminumBackgroundModifier
 import kotlinx.coroutines.delay
 
@@ -480,8 +481,8 @@ private fun PermissionRequestContent(onRequestPermission: () -> Unit) {
         Spacer(modifier = Modifier.height(8.dp))
         Text("This app needs access to your storage to find and convert music files.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF777777), textAlign = TextAlign.Center)
         Spacer(modifier = Modifier.height(24.dp))
-        TextButton(onClick = onRequestPermission) {
-            Text("Grant Permission", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF555555))
+        GelButton(onClick = onRequestPermission) {
+            Text("Grant Permission", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF444444))
         }
     }
 }
@@ -510,10 +511,10 @@ private fun EmptyContent(message: String, onRefresh: () -> Unit) {
         Spacer(modifier = Modifier.height(16.dp))
         Text(message, style = MaterialTheme.typography.bodyLarge, color = Color(0xFF777777))
         Spacer(modifier = Modifier.height(16.dp))
-        TextButton(onClick = onRefresh) {
-            Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF555555))
+        GelButton(onClick = onRefresh) {
+            Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF444444))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Refresh", color = Color(0xFF555555), fontWeight = FontWeight.Bold)
+            Text("Refresh", color = Color(0xFF444444), fontWeight = FontWeight.Bold)
         }
     }
 }
