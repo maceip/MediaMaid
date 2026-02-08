@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brushed aluminum silver for splash screen -->
+    <color name="splash_background">#C0C0C8</color>
+    <!-- Icon background circle -->
+    <color name="splash_icon_bg">#808890</color>
+</resources>
