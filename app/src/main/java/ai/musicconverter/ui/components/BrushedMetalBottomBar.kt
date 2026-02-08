@@ -3,12 +3,6 @@ package ai.musicconverter.ui.components
 import android.graphics.RuntimeShader
 import android.os.Build
 import android.view.HapticFeedbackConstants
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,9 +56,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.sin
 
 // ── Three AGSL shader variants ─────────────────────────────────
 
@@ -191,65 +183,84 @@ private val ChromeBezelBrush = Brush.linearGradient(
 )
 
 // ── Clear Gel gradients ────────────────────────────────────────
+// Classic Mac OS X Aqua-style opaque capsule buttons
 
-private val GelGradient = Brush.verticalGradient(
-    colors = listOf(
-        Color(0x60FFFFFF), // top: bright translucent white
-        Color(0x30F0F0F4), // upper-mid: faint cool tint
-        Color(0x18D8D8E0), // mid: barely there
-        Color(0x25C8C8D0), // lower-mid: subtle density
-        Color(0x35BBBBC4), // bottom: slightly denser
-    )
-)
+enum class AquaStyle { GRAY, BLUE }
 
-private val GelPressedGradient = Brush.verticalGradient(
-    colors = listOf(
-        Color(0x30D0D0D8),
-        Color(0x40C4C4CC),
-        Color(0x38D0D0D8),
-        Color(0x28C8C8D0),
-    )
-)
+private fun aquaGradient(style: AquaStyle, pressed: Boolean): Brush {
+    if (pressed) {
+        return when (style) {
+            AquaStyle.GRAY -> Brush.verticalGradient(listOf(
+                Color(0xFFB0B0B4), Color(0xFFBCBCC0), Color(0xFFC6C6CA), Color(0xFFBABABE)
+            ))
+            AquaStyle.BLUE -> Brush.verticalGradient(listOf(
+                Color(0xFF5080C0), Color(0xFF6090D0), Color(0xFF7098D4), Color(0xFF5888C8)
+            ))
+        }
+    }
+    return when (style) {
+        AquaStyle.GRAY -> Brush.verticalGradient(listOf(
+            Color(0xFFF4F4F6),  // top highlight
+            Color(0xFFE8E8EC),  // upper body
+            Color(0xFFD0D0D6),  // mid
+            Color(0xFFBCBCC4),  // lower body
+            Color(0xFFD2D2D8),  // bottom highlight bounce
+        ))
+        AquaStyle.BLUE -> Brush.verticalGradient(listOf(
+            Color(0xFFB8D4F0),  // top highlight
+            Color(0xFF7BB4E8),  // upper body
+            Color(0xFF4A94DC),  // mid
+            Color(0xFF3878C8),  // lower body
+            Color(0xFF5A90D4),  // bottom highlight bounce
+        ))
+    }
+}
 
-private val GelBezelBrush = Brush.linearGradient(
-    colors = listOf(
-        Color(0xBBFFFFFF), Color(0x55AAAAAA), Color(0x88DDDDDD), Color(0x55AAAAAA), Color(0xBBFFFFFF),
-    ),
-    start = Offset.Zero,
-    end = Offset.Infinite
-)
+private fun aquaBezel(style: AquaStyle): Brush {
+    return when (style) {
+        AquaStyle.GRAY -> Brush.linearGradient(
+            listOf(Color(0xFFDDDDE0), Color(0xFF999CA0), Color(0xFFBBBCC0), Color(0xFF999CA0), Color(0xFFDDDDE0)),
+            start = Offset.Zero, end = Offset.Infinite
+        )
+        AquaStyle.BLUE -> Brush.linearGradient(
+            listOf(Color(0xFF90B8E0), Color(0xFF4878B4), Color(0xFF6898CC), Color(0xFF4878B4), Color(0xFF90B8E0)),
+            start = Offset.Zero, end = Offset.Infinite
+        )
+    }
+}
 
-// ── Public Gel Button ──────────────────────────────────────────
+// ── Public Aqua Gel Button ─────────────────────────────────────
 
 /**
- * Rectangular button with slightly rounded corners and clear gel material.
- * Designed to match the skeuomorphic style of the bottom bar transport buttons
- * but in a wider, rectangular form for use on permission/empty screens.
+ * Classic Mac OS X Aqua-style capsule button. Opaque, rounded pill shape
+ * with glossy specular highlight and depth. Supports gray (cancel/secondary)
+ * and blue (okay/primary) styles.
  */
 @Composable
 fun GelButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    style: AquaStyle = AquaStyle.GRAY,
     content: @Composable () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val gelShape = RoundedCornerShape(10.dp)
+    val gelShape = RoundedCornerShape(50) // full pill
 
     Box(
         modifier = modifier
             .shadow(
-                elevation = if (isPressed) 1.dp else 6.dp,
+                elevation = if (isPressed) 1.dp else 4.dp,
                 shape = gelShape,
-                ambientColor = Color(0x44666666),
-                spotColor = Color(0x55444444)
+                ambientColor = Color(0x55666666),
+                spotColor = Color(0x66444444)
             )
             .clip(gelShape)
-            .background(if (isPressed) GelPressedGradient else GelGradient)
-            .border(0.75.dp, GelBezelBrush, gelShape)
-            .drawBehind { drawGelOverlay(isPressed) }
+            .background(aquaGradient(style, isPressed))
+            .border(1.dp, aquaBezel(style), gelShape)
+            .drawBehind { drawAquaOverlay(isPressed, style) }
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) { content() }
 }
@@ -534,22 +545,29 @@ private fun TransportControlsRow(
     onSearchClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Volume mute state (local toggle)
+    var isMuted by remember { mutableStateOf(false) }
+    val view = LocalView.current
+
     Row(modifier = modifier, horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        GlossyButton(onClick = {
+            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            isMuted = !isMuted
+        }, size = 36) { VolumeIcon(muted = isMuted) }
         Spacer(Modifier.weight(1f))
         GlossyButton(onClick = onPreviousClick, size = 44) { PreviousTrackIcon() }
         Spacer(Modifier.width(8.dp))
         GlossyButton(onClick = onRewindClick, size = 44) { RewindIcon() }
         Spacer(Modifier.width(10.dp))
-        ConvertButton(isConverting = isConverting, onClick = onConvertClick)
+        PlayButton(isConverting = isConverting, onClick = onConvertClick)
         Spacer(Modifier.width(10.dp))
         GlossyButton(onClick = onFastForwardClick, size = 44) { FastForwardIcon() }
         Spacer(Modifier.width(8.dp))
         GlossyButton(onClick = onNextClick, size = 44) { NextTrackIcon() }
         Spacer(Modifier.weight(1f))
-        GlossyButton(onClick = onSearchClick, size = 40) {
-            Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(20.dp), tint = Color(0xFF444444))
+        GlossyButton(onClick = onSearchClick, size = 36) {
+            Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(18.dp), tint = Color(0xFF444444))
         }
-        Spacer(Modifier.width(4.dp))
     }
 }
 
@@ -594,84 +612,53 @@ private fun DrawScope.drawGlossyOverlay(isPressed: Boolean) {
     drawPath(shadowPath, Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = if (isPressed) 0.04f else 0.12f)), startY = size.height * 0.55f, endY = size.height))
 }
 
-// ── Gel overlay for rectangular clear gel buttons ────────────────
+// ── Aqua overlay for capsule buttons ────────────────────────────
 
-private fun DrawScope.drawGelOverlay(isPressed: Boolean) {
-    val w = size.width; val h = size.height; val r = 10f
+private fun DrawScope.drawAquaOverlay(isPressed: Boolean, style: AquaStyle) {
+    val w = size.width; val h = size.height
 
-    // Top specular highlight — bright arc reflection like light hitting clear gel
+    // Top specular highlight — the classic Aqua glossy white band across upper third
     if (!isPressed) {
         val highlightPath = Path().apply {
-            moveTo(r + 4f, 3f)
-            quadraticTo(w / 2f, -h * 0.15f, w - r - 4f, 3f)
-            lineTo(w - r - 8f, h * 0.28f)
-            quadraticTo(w / 2f, h * 0.12f, r + 8f, h * 0.28f)
+            moveTo(h / 2f, 2f)
+            lineTo(w - h / 2f, 2f)
+            lineTo(w - h / 2f, h * 0.42f)
+            quadraticTo(w / 2f, h * 0.32f, h / 2f, h * 0.42f)
             close()
         }
         drawPath(
             highlightPath,
             Brush.verticalGradient(
-                listOf(Color.White.copy(alpha = 0.75f), Color.White.copy(alpha = 0.0f)),
-                startY = 0f, endY = h * 0.35f
+                listOf(Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0.15f)),
+                startY = 0f, endY = h * 0.45f
             )
         )
     }
 
-    // Inner glow — subtle refraction caustic along bottom edge
+    // Bottom inner glow — subtle light bounce at bottom edge
+    val bounceAlpha = if (style == AquaStyle.BLUE) 0.2f else 0.3f
     drawLine(
-        Color.White.copy(alpha = if (isPressed) 0.15f else 0.35f),
-        Offset(r + 4f, h - 2.5f),
-        Offset(w - r - 4f, h - 2.5f),
+        Color.White.copy(alpha = if (isPressed) bounceAlpha * 0.5f else bounceAlpha),
+        Offset(h / 2f, h - 2.5f),
+        Offset(w - h / 2f, h - 2.5f),
         strokeWidth = 1f
-    )
-
-    // Side glints — tiny vertical highlights near left and right edges
-    if (!isPressed) {
-        drawLine(
-            Color.White.copy(alpha = 0.25f),
-            Offset(2f, h * 0.2f),
-            Offset(2f, h * 0.7f),
-            strokeWidth = 0.8f
-        )
-        drawLine(
-            Color.White.copy(alpha = 0.18f),
-            Offset(w - 2f, h * 0.25f),
-            Offset(w - 2f, h * 0.65f),
-            strokeWidth = 0.8f
-        )
-    }
-
-    // Bottom shadow accumulation — gel is denser at the bottom
-    val bottomShadow = Path().apply {
-        moveTo(r, h)
-        lineTo(w - r, h)
-        lineTo(w - r, h * 0.75f)
-        quadraticTo(w / 2f, h * 0.85f, r, h * 0.75f)
-        close()
-    }
-    drawPath(
-        bottomShadow,
-        Brush.verticalGradient(
-            listOf(Color.Transparent, Color.Black.copy(alpha = if (isPressed) 0.02f else 0.06f)),
-            startY = h * 0.7f, endY = h
-        )
     )
 }
 
 // ── Center Convert Button ──────────────────────────────────────
 
 @Composable
-private fun ConvertButton(isConverting: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun PlayButton(isConverting: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val infiniteTransition = rememberInfiniteTransition(label = "convert")
-    val rotationAngle by infiniteTransition.animateFloat(0f, 360f, infiniteRepeatable(tween(2000, easing = LinearEasing), RepeatMode.Restart), label = "rot")
 
     Box(modifier = modifier.size(66.dp), contentAlignment = Alignment.Center) {
+        // Outer chrome ring
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawCircle(Brush.verticalGradient(listOf(Color(0xFFE0E0E0), Color(0xFF909090), Color(0xFFBBBBBB))), size.minDimension / 2f, style = Stroke(5f))
             drawCircle(Color.White.copy(alpha = 0.35f), size.minDimension / 2f + 1f, style = Stroke(0.5f))
         }
+        // Inner glossy button
         Box(
             modifier = Modifier.size(54.dp)
                 .shadow(if (isPressed) 1.dp else 5.dp, CircleShape, ambientColor = Color(0xFF777777), spotColor = Color(0xFF555555))
@@ -682,34 +669,27 @@ private fun ConvertButton(isConverting: Boolean, onClick: () -> Unit, modifier: 
                 .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
-            Canvas(modifier = Modifier.size(38.dp)) {
+            // Play triangle (or stop square when converting)
+            Canvas(modifier = Modifier.size(28.dp)) {
                 val cx = size.width / 2f; val cy = size.height / 2f
-                val arrowR = size.minDimension / 2f - 3f; val ac = Color(0xFF3A3A3A)
-                val sa = if (isConverting) rotationAngle else 0f
-
-                drawArc(ac, sa - 30f, 150f, false, Offset(cx - arrowR, cy - arrowR), Size(arrowR * 2, arrowR * 2), style = Stroke(2.8f))
-                val ta = Math.toRadians((sa + 120.0)); drawArrowHead(cx + arrowR * cos(ta).toFloat(), cy + arrowR * sin(ta).toFloat(), sa + 120f, ac)
-                drawArc(ac, sa + 150f, 150f, false, Offset(cx - arrowR, cy - arrowR), Size(arrowR * 2, arrowR * 2), style = Stroke(2.8f))
-                val ba = Math.toRadians((sa + 300.0)); drawArrowHead(cx + arrowR * cos(ba).toFloat(), cy + arrowR * sin(ba).toFloat(), sa + 300f, ac)
-
-                val nc = Color(0xFF2A2A2A); val s = 1.3f
-                drawOval(nc, Offset(cx - 6f * s, cy + 2f * s), Size(9f * s, 6f * s))
-                drawOval(nc, Offset(cx + 2f * s, cy + 4f * s), Size(9f * s, 6f * s))
-                drawLine(nc, Offset(cx + 1.5f * s, cy + 5f * s), Offset(cx + 1.5f * s, cy - 8f * s), 2.2f)
-                drawLine(nc, Offset(cx + 10f * s, cy + 7f * s), Offset(cx + 10f * s, cy - 6f * s), 2.2f)
-                drawLine(nc, Offset(cx + 1.5f * s, cy - 8f * s), Offset(cx + 10f * s, cy - 6f * s), 3f)
+                val c = Color(0xFF2A2A2A)
+                if (isConverting) {
+                    // Stop square
+                    val s = size.minDimension * 0.32f
+                    drawRect(c, Offset(cx - s, cy - s), Size(s * 2, s * 2))
+                } else {
+                    // Play triangle — shifted right slightly for optical centering
+                    val path = Path().apply {
+                        moveTo(cx - size.width * 0.22f, cy - size.height * 0.38f)
+                        lineTo(cx + size.width * 0.35f, cy)
+                        lineTo(cx - size.width * 0.22f, cy + size.height * 0.38f)
+                        close()
+                    }
+                    drawPath(path, c)
+                }
             }
         }
     }
-}
-
-private fun DrawScope.drawArrowHead(x: Float, y: Float, deg: Float, color: Color) {
-    val a = Math.toRadians(deg.toDouble()); val l = 6f
-    val path = Path().apply {
-        moveTo(x, y); lineTo(x - l * cos(a - PI / 6).toFloat(), y - l * sin(a - PI / 6).toFloat())
-        moveTo(x, y); lineTo(x - l * cos(a + PI / 6).toFloat(), y - l * sin(a + PI / 6).toFloat())
-    }
-    drawPath(path, color, style = Stroke(2.5f))
 }
 
 // ── Transport Icons ────────────────────────────────────────────
@@ -743,5 +723,30 @@ private fun FastForwardIcon() {
     Canvas(Modifier.size(20.dp)) { val c = Color(0xFF3A3A3A)
         drawPath(Path().apply { moveTo(2f, 4f); lineTo(size.width / 2f, size.height / 2f); lineTo(2f, size.height - 4f); close() }, c)
         drawPath(Path().apply { moveTo(size.width / 2f, 4f); lineTo(size.width - 2f, size.height / 2f); lineTo(size.width / 2f, size.height - 4f); close() }, c)
+    }
+}
+
+@Composable
+private fun VolumeIcon(muted: Boolean) {
+    Canvas(Modifier.size(16.dp)) {
+        val c = Color(0xFF3A3A3A)
+        // Speaker body
+        drawRect(c, Offset(1f, size.height * 0.3f), Size(4f, size.height * 0.4f))
+        // Speaker cone
+        drawPath(Path().apply {
+            moveTo(5f, size.height * 0.3f)
+            lineTo(10f, 2f)
+            lineTo(10f, size.height - 2f)
+            lineTo(5f, size.height * 0.7f)
+            close()
+        }, c)
+        if (muted) {
+            // X mark for mute
+            drawLine(Color(0xFFCC3333), Offset(11f, size.height * 0.3f), Offset(size.width - 1f, size.height * 0.7f), 2f)
+            drawLine(Color(0xFFCC3333), Offset(11f, size.height * 0.7f), Offset(size.width - 1f, size.height * 0.3f), 2f)
+        } else {
+            // Sound waves
+            drawArc(c, -40f, 80f, false, Offset(11f, size.height * 0.2f), Size(6f, size.height * 0.6f), style = Stroke(1.5f))
+        }
     }
 }

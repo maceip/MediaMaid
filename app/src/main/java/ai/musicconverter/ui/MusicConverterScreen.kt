@@ -9,7 +9,10 @@ import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,13 +27,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -47,22 +54,28 @@ import androidx.compose.material3.Text
 
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
@@ -75,6 +88,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import ai.musicconverter.data.ConversionStatus
 import ai.musicconverter.data.MusicFile
 import ai.musicconverter.ui.components.AluminumVariant
+import ai.musicconverter.ui.components.AquaStyle
 import ai.musicconverter.ui.components.BrushedMetalBottomBar
 import ai.musicconverter.ui.components.GelButton
 import ai.musicconverter.ui.components.aluminumBackgroundModifier
@@ -180,52 +194,70 @@ fun MusicConverterScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
+            // Metal window frame with traffic lights, search, and settings
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(aluminumBackgroundModifier())
+                    .drawBehind {
+                        // Bottom edge shadow for metal frame depth
+                        drawLine(Color.Black.copy(alpha = 0.15f), Offset(0f, size.height - 1f), Offset(size.width, size.height - 1f), strokeWidth = 1.5f)
+                        drawLine(Color.White.copy(alpha = 0.4f), Offset(0f, size.height - 2.5f), Offset(size.width, size.height - 2.5f), strokeWidth = 0.5f)
+                    }
+            ) {
+                // Top row: traffic lights + search bar + settings gear
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Graphite traffic light buttons
+                    GraphiteTrafficLights()
+                    Spacer(Modifier.width(10.dp))
+
+                    // Search field
                     TextField(
                         value = uiState.searchQuery,
                         onValueChange = { viewModel.updateSearchQuery(it) },
                         placeholder = {
-                            Text("Search...", style = MaterialTheme.typography.bodyMedium)
+                            Text("Search...", style = MaterialTheme.typography.bodySmall, color = Color(0xFF888888))
                         },
                         leadingIcon = {
-                            Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(16.dp), tint = Color(0xFF777777))
                         },
                         trailingIcon = {
                             if (uiState.searchQuery.isNotEmpty()) {
                                 IconButton(onClick = { viewModel.updateSearchQuery("") }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(14.dp))
                                 }
                             }
                         },
                         singleLine = true,
                         colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.White.copy(alpha = 0.4f),
-                            unfocusedContainerColor = Color.White.copy(alpha = 0.25f),
+                            focusedContainerColor = Color.White.copy(alpha = 0.5f),
+                            unfocusedContainerColor = Color.White.copy(alpha = 0.3f),
                             focusedIndicatorColor = Color.Transparent,
                             unfocusedIndicatorColor = Color.Transparent
                         ),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(6.dp),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
+                            .weight(1f)
+                            .height(36.dp)
                             .focusRequester(searchFocusRequester)
                     )
-                },
-                navigationIcon = {
+
+                    Spacer(Modifier.width(8.dp))
                     IconButton(onClick = { showSettingsSheet = true }) {
                         Icon(
                             Icons.Default.Settings,
                             contentDescription = "Settings",
+                            modifier = Modifier.size(20.dp),
                             tint = if (autoConvertEnabled) Color(0xFF4444CC) else Color(0xFF555555)
                         )
                     }
-                },
-                modifier = Modifier.then(aluminumBackgroundModifier()),
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent
-                )
-            )
+                }
+            }
         },
         bottomBar = {
             BrushedMetalBottomBar(
@@ -316,11 +348,11 @@ fun MusicConverterScreen(
                 GelButton(onClick = {
                     showConvertConfirmDialog = false
                     viewModel.convertAllFiles()
-                }) { Text("Convert", fontWeight = FontWeight.Bold, color = Color(0xFF444444)) }
+                }, style = AquaStyle.BLUE) { Text("Convert", fontWeight = FontWeight.Bold, color = Color.White) }
             },
             dismissButton = {
-                GelButton(onClick = { showConvertConfirmDialog = false }) {
-                    Text("Cancel", color = Color(0xFF666666))
+                GelButton(onClick = { showConvertConfirmDialog = false }, style = AquaStyle.GRAY) {
+                    Text("Cancel", color = Color(0xFF444444))
                 }
             }
         )
@@ -361,12 +393,128 @@ fun MusicConverterScreen(
 }
 
 // ──────────────────────────────────────────────────────────────
+// Graphite Traffic Light Buttons (decorative window controls)
+// ──────────────────────────────────────────────────────────────
+
+@Composable
+private fun GraphiteTrafficLights() {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Close, minimize, maximize — all graphite gray
+        TrafficDot(Color(0xFF6E6E6E), Color(0xFF555555))
+        TrafficDot(Color(0xFF6E6E6E), Color(0xFF555555))
+        TrafficDot(Color(0xFF6E6E6E), Color(0xFF555555))
+    }
+}
+
+@Composable
+private fun TrafficDot(color: Color, borderColor: Color) {
+    Canvas(modifier = Modifier.size(12.dp)) {
+        // Outer shadow
+        drawCircle(Color.Black.copy(alpha = 0.2f), radius = size.minDimension / 2f, center = Offset(size.width / 2f, size.height / 2f + 0.5f))
+        // Body gradient
+        drawCircle(
+            Brush.verticalGradient(listOf(color.copy(alpha = 0.8f), color, color.copy(alpha = 0.7f))),
+            radius = size.minDimension / 2f - 0.5f
+        )
+        // Border ring
+        drawCircle(borderColor, radius = size.minDimension / 2f - 0.5f, style = Stroke(1f))
+        // Top specular highlight
+        drawCircle(
+            Color.White.copy(alpha = 0.35f),
+            radius = size.minDimension / 4f,
+            center = Offset(size.width / 2f, size.height * 0.35f)
+        )
+    }
+}
+
+// ──────────────────────────────────────────────────────────────
+// Tabbed List View
+// ──────────────────────────────────────────────────────────────
+
+private data class TabItem(val label: String, val icon: @Composable () -> Unit)
+
+@Composable
+private fun MetalTabBar(selectedTab: Int, onTabSelected: (Int) -> Unit) {
+    val tabs = listOf(
+        TabItem("All") { Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF444444)) },
+        TabItem("Convert") { Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF444444)) },
+        TabItem("Files") { Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF444444)) },
+        TabItem("Favorites") { Icon(Icons.Default.Favorite, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF444444)) },
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(listOf(Color(0xFFD8D8DC), Color(0xFFC8C8CC), Color(0xFFBEBEC2)))
+            )
+            .drawBehind {
+                drawLine(Color.White.copy(alpha = 0.5f), Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 0.5f)
+                drawLine(Color.Black.copy(alpha = 0.12f), Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), strokeWidth = 0.5f)
+            }
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        tabs.forEachIndexed { index, tab ->
+            val isSelected = index == selectedTab
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 2.dp)
+                    .then(
+                        if (isSelected) {
+                            Modifier
+                                .shadow(2.dp, RoundedCornerShape(4.dp))
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(
+                                    Brush.verticalGradient(listOf(Color(0xFFEEEEF0), Color(0xFFDDDDE0)))
+                                )
+                                .border(0.5.dp, Color(0xFFAAAAB0), RoundedCornerShape(4.dp))
+                        } else {
+                            Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable { onTabSelected(index) }
+                        }
+                    )
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    tab.icon()
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        tab.label,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) Color(0xFF333333) else Color(0xFF666666)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────
 // Condensed Media Table List (bone background)
 // ──────────────────────────────────────────────────────────────
 
 @Composable
 private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int) {
+    var selectedTab by remember { mutableIntStateOf(0) }
+
+    // Filter files based on selected tab
+    val filteredFiles = when (selectedTab) {
+        1 -> files.filter { it.needsConversion }  // Convert tab
+        2 -> files  // Files tab = all
+        3 -> files.take(0)  // Favorites = empty for now (stubbed)
+        else -> files  // All tab
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
+        MetalTabBar(selectedTab = selectedTab, onTabSelected = { selectedTab = it })
         MediaTableHeader()
         HorizontalDivider(color = BoneDivider)
 
@@ -374,7 +522,7 @@ private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int) {
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(0.dp)
         ) {
-            items(files, key = { it.id }) { file ->
+            items(filteredFiles, key = { it.id }) { file ->
                 MediaTableRow(file = file)
                 HorizontalDivider(color = BoneDivider.copy(alpha = 0.6f), thickness = 0.5.dp)
             }
