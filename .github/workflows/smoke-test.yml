@@ -1,10 +1,10 @@
 name: Smoke Test (On-Demand)
 
 # Remote agents trigger this with:
-#   gh workflow run smoke-test.yml --repo maceip/press-secretary -f ref=main
+#   gh workflow run smoke-test.yml --repo maceip/MediaMaid -f ref=main
 # Or via API:
 #   curl -X POST -H "Authorization: token $GH_TOKEN" \
-#     https://api.github.com/repos/maceip/press-secretary/actions/workflows/smoke-test.yml/dispatches \
+#     https://api.github.com/repos/maceip/MediaMaid/actions/workflows/smoke-test.yml/dispatches \
 #     -d '{"ref":"main"}'
 
 on:
@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
 
       - uses: gradle/actions/setup-gradle@v4
 
