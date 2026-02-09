@@ -1,0 +1,25 @@
+name: Validate Workflow Configs
+
+on:
+  push:
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+
+jobs:
+  validate:
+    name: Validate YAML Configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install pyyaml
+
+      - name: Validate smoke-test.yml
+        run: python scripts/test_smoke_yaml.py
