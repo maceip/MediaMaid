@@ -26,7 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -41,6 +41,8 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -60,6 +62,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -97,6 +100,16 @@ import kotlinx.coroutines.delay
 // Bone/off-white background for file listing
 private val BoneWhite = Color(0xFFF5F0E6)
 private val BoneDivider = Color(0xFFDDD8CE)
+
+// iTunes-style table colors
+private val TableWhite = Color(0xFFFFFFFF)
+private val TableBlueStripe = Color(0xFFEDF3FE)
+private val TableHeaderBg = Color(0xFFECECEC)
+private val TableHeaderBorder = Color(0xFFCCCCCC)
+private val TableDivider = Color(0xFFDDDDDD)
+private val TableText = Color(0xFF333333)
+private val TableSecondaryText = Color(0xFF555555)
+private val CheckboxBlue = Color(0xFF3B82F6)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -518,6 +531,7 @@ private fun MetalTabBar(selectedTab: Int, onTabSelected: (Int) -> Unit) {
 @Composable
 private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int, onPlayFile: (MusicFile) -> Unit = {}) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    val checkedFiles = remember { mutableStateMapOf<String, Boolean>() }
 
     val filteredFiles = when (selectedTab) {
         1 -> files.filter { it.needsConversion }
@@ -526,18 +540,31 @@ private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int, onPlayFi
         else -> files
     }
 
+    // Default all files to checked
+    filteredFiles.forEach { file ->
+        if (file.id !in checkedFiles) {
+            checkedFiles[file.id] = true
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         MetalTabBar(selectedTab = selectedTab, onTabSelected = { selectedTab = it })
         MediaTableHeader()
-        HorizontalDivider(color = BoneDivider)
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .background(TableWhite),
             contentPadding = PaddingValues(0.dp)
         ) {
-            items(filteredFiles, key = { it.id }) { file ->
-                MediaTableRow(file = file, onClick = { onPlayFile(file) })
-                HorizontalDivider(color = BoneDivider.copy(alpha = 0.6f), thickness = 0.5.dp)
+            itemsIndexed(filteredFiles, key = { _, file -> file.id }) { index, file ->
+                MediaTableRow(
+                    file = file,
+                    isEvenRow = index % 2 == 0,
+                    isChecked = checkedFiles[file.id] ?: true,
+                    onCheckedChange = { checkedFiles[file.id] = it },
+                    onClick = { onPlayFile(file) }
+                )
             }
         }
     }
@@ -548,39 +575,117 @@ private fun MediaTableHeader() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(BoneWhite.copy(alpha = 0.8f))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFFFFFFFF), TableHeaderBg)
+                )
+            )
+            .drawBehind {
+                // Top border
+                drawLine(TableHeaderBorder, Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 1f)
+                // Bottom border
+                drawLine(TableHeaderBorder, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth = 1f)
+            }
+            .padding(start = 40.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("Name", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), color = Color(0xFF555555))
-        Text("Time", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.width(52.dp), textAlign = TextAlign.End, color = Color(0xFF555555))
-        Text("Track #", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.width(60.dp), textAlign = TextAlign.Center, color = Color(0xFF555555))
-        Text("Artist", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.width(80.dp), textAlign = TextAlign.End, color = Color(0xFF555555))
+        Text(
+            "Song Name",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+            color = TableSecondaryText
+        )
+        Text(
+            "Time",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(56.dp),
+            textAlign = TextAlign.End,
+            color = TableSecondaryText
+        )
+        Text(
+            "Artist",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(80.dp),
+            textAlign = TextAlign.End,
+            color = TableSecondaryText
+        )
     }
 }
 
 @Composable
-private fun MediaTableRow(file: MusicFile, onClick: () -> Unit = {}) {
-    val bgColor = if (file.isConverting) Color(0xFFE8E2D4) else Color.Transparent
+private fun MediaTableRow(
+    file: MusicFile,
+    isEvenRow: Boolean,
+    isChecked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    onClick: () -> Unit = {}
+) {
+    val stripeBg = if (isEvenRow) TableWhite else TableBlueStripe
+    val bgColor = if (file.isConverting) Color(0xFFD4E4FF) else stripeBg
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(bgColor)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(start = 4.dp, end = 12.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Checkbox
+        Checkbox(
+            checked = isChecked,
+            onCheckedChange = onCheckedChange,
+            modifier = Modifier.size(32.dp),
+            colors = CheckboxDefaults.colors(
+                checkedColor = CheckboxBlue,
+                uncheckedColor = Color(0xFFAAAAAA),
+                checkmarkColor = Color.White
+            )
+        )
+
+        // Song Name column
         Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            Text(file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false), color = Color(0xFF333333))
+            Text(
+                file.name,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+                color = TableText
+            )
             if (file.isConverting) {
                 Spacer(modifier = Modifier.width(6.dp))
-                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color(0xFF666666))
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = CheckboxBlue
+                )
             }
         }
-        Text(file.displayDuration, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.width(52.dp), textAlign = TextAlign.End, color = Color(0xFF666666))
-        Text(file.displayTrack, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(60.dp), textAlign = TextAlign.Center, color = Color(0xFF666666))
-        Text(file.artist ?: "", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(80.dp), textAlign = TextAlign.End, color = Color(0xFF666666))
+
+        // Time column
+        Text(
+            file.displayDuration,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.width(56.dp),
+            textAlign = TextAlign.End,
+            color = TableSecondaryText
+        )
+
+        // Artist column
+        Text(
+            file.artist ?: "",
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.width(80.dp),
+            textAlign = TextAlign.End,
+            color = TableSecondaryText
+        )
     }
 }
 
