@@ -1,7 +1,7 @@
 name: Smoke Test (On-Demand)
 
 # Remote agents trigger this with:
-#   gh workflow run smoke-test.yml --repo maceip/MediaMaid -f ref=main
+#   gh workflow run smoke-test.yml --repo maceip/MediaMaid -f ref=master
 # Or via API:
 #   curl -X POST -H "Authorization: token $GH_TOKEN" \
 #     https://api.github.com/repos/maceip/MediaMaid/actions/workflows/smoke-test.yml/dispatches \
