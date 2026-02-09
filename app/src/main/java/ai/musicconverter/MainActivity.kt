@@ -10,6 +10,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import ai.musicconverter.ui.MusicConverterScreen
+import ai.musicconverter.ui.components.CrtCloseWrapper
 import ai.musicconverter.ui.theme.MusicConverterTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -33,7 +34,9 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MusicConverterScreen()
+                    CrtCloseWrapper {
+                        MusicConverterScreen()
+                    }
                 }
             }
         }
