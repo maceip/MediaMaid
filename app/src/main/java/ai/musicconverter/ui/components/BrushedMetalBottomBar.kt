@@ -54,8 +54,10 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ai.musicconverter.data.PlayerState
 
 // ── Three AGSL shader variants ─────────────────────────────────
 
@@ -311,8 +313,11 @@ fun BrushedMetalBottomBar(
     conversionProgress: Float,
     elapsedTimeText: String,
     notificationText: String? = null,
+    playerState: PlayerState = PlayerState(),
     onConvertClick: () -> Unit,
+    onPlayPauseClick: () -> Unit = {},
     onSearchClick: () -> Unit,
+    onSeekTo: (Float) -> Unit = {},
     onVariantChanged: (AluminumVariant) -> Unit = {},
     onPreviousClick: () -> Unit = {},
     onRewindClick: () -> Unit = {},
@@ -323,8 +328,7 @@ fun BrushedMetalBottomBar(
     val view = LocalView.current
     val barShape = RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp)
 
-    // Aluminum variant state - switchable via transport buttons (debug)
-    var variantIndex by remember { mutableIntStateOf(1) } // 0=cool, 1=neutral, 2=warm
+    var variantIndex by remember { mutableIntStateOf(1) }
     val currentVariant = AluminumVariant.entries[variantIndex]
 
     Box(
@@ -338,15 +342,32 @@ fun BrushedMetalBottomBar(
                 .fillMaxWidth()
                 .then(twoToneAluminumModifier(currentVariant))
         ) {
-            // ── Progress / notification display ──
+            // ── Now-playing track info (only when media loaded) ──
+            if (playerState.hasMedia) {
+                NowPlayingInfo(
+                    title = playerState.currentTitle,
+                    artist = playerState.currentArtist,
+                    album = playerState.currentAlbum,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp)
+                        .padding(top = 8.dp, bottom = 2.dp)
+                )
+            }
+
+            // ── Progress / scrubber display ──
             CalculatorProgressBar(
-                progress = conversionProgress,
-                timeText = notificationText ?: elapsedTimeText,
-                isNotification = notificationText != null,
+                progress = if (playerState.hasMedia) playerState.progress else conversionProgress,
+                timeText = if (playerState.hasMedia) playerState.displayPosition
+                           else notificationText ?: elapsedTimeText,
+                endTimeText = if (playerState.hasMedia) playerState.displayDuration else null,
+                isNotification = notificationText != null && !playerState.hasMedia,
+                isPlayerMode = playerState.hasMedia,
+                onSeek = if (playerState.hasMedia) onSeekTo else null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp)
-                    .padding(top = 8.dp, bottom = 4.dp)
+                    .padding(top = if (playerState.hasMedia) 2.dp else 8.dp, bottom = 4.dp)
             )
 
             // ── Mini shelf ──
@@ -355,21 +376,31 @@ fun BrushedMetalBottomBar(
             // ── Transport controls ──
             TransportControlsRow(
                 isConverting = isConverting,
+                isPlaying = playerState.isPlaying,
+                hasMedia = playerState.hasMedia,
                 onPreviousClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    variantIndex = 0 // COOL
-                    onVariantChanged(AluminumVariant.COOL)
-                    onPreviousClick()
+                    if (playerState.hasMedia) {
+                        onPreviousClick()
+                    } else {
+                        variantIndex = 0
+                        onVariantChanged(AluminumVariant.COOL)
+                        onPreviousClick()
+                    }
                 },
                 onRewindClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     onRewindClick()
                 },
-                onConvertClick = {
+                onCenterClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                    variantIndex = 1 // NEUTRAL
-                    onVariantChanged(AluminumVariant.NEUTRAL)
-                    onConvertClick()
+                    if (playerState.hasMedia) {
+                        onPlayPauseClick()
+                    } else {
+                        variantIndex = 1
+                        onVariantChanged(AluminumVariant.NEUTRAL)
+                        onConvertClick()
+                    }
                 },
                 onFastForwardClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -377,9 +408,13 @@ fun BrushedMetalBottomBar(
                 },
                 onNextClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    variantIndex = 2 // WARM
-                    onVariantChanged(AluminumVariant.WARM)
-                    onNextClick()
+                    if (playerState.hasMedia) {
+                        onNextClick()
+                    } else {
+                        variantIndex = 2
+                        onVariantChanged(AluminumVariant.WARM)
+                        onNextClick()
+                    }
                 },
                 onSearchClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -473,11 +508,15 @@ private fun DrawScope.drawRidgeline() {
 private fun CalculatorProgressBar(
     progress: Float,
     timeText: String,
+    endTimeText: String? = null,
     isNotification: Boolean = false,
+    isPlayerMode: Boolean = false,
+    onSeek: ((Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    var isSeeking by remember { mutableStateOf(false) }
     var sliderPosition by remember { mutableFloatStateOf(progress) }
-    if (progress != sliderPosition) sliderPosition = progress
+    if (!isSeeking) sliderPosition = progress
 
     Box(
         modifier = modifier
@@ -502,22 +541,31 @@ private fun CalculatorProgressBar(
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
                     color = if (isNotification) Color(0xFF8B4513) else Color(0xFF222222),
-                    letterSpacing = 2.sp
+                    letterSpacing = if (isPlayerMode) 1.sp else 2.sp
                 ),
                 maxLines = 1
             )
 
             if (!isNotification) {
-                Canvas(modifier = Modifier.size(7.dp)) {
-                    val path = Path().apply {
-                        moveTo(size.width / 2, 0f); lineTo(size.width, size.height); lineTo(0f, size.height); close()
+                if (!isPlayerMode) {
+                    Canvas(modifier = Modifier.size(7.dp)) {
+                        val path = Path().apply {
+                            moveTo(size.width / 2, 0f); lineTo(size.width, size.height); lineTo(0f, size.height); close()
+                        }
+                        drawPath(path, Color(0xFF222222))
                     }
-                    drawPath(path, Color(0xFF222222))
                 }
 
                 Slider(
                     value = sliderPosition,
-                    onValueChange = { sliderPosition = it },
+                    onValueChange = {
+                        isSeeking = true
+                        sliderPosition = it
+                    },
+                    onValueChangeFinished = {
+                        isSeeking = false
+                        onSeek?.invoke(sliderPosition)
+                    },
                     modifier = Modifier.weight(1f).height(18.dp),
                     colors = SliderDefaults.colors(
                         thumbColor = Color(0xFF555555),
@@ -525,6 +573,20 @@ private fun CalculatorProgressBar(
                         inactiveTrackColor = Color(0xFFCCCCCC)
                     )
                 )
+
+                if (endTimeText != null) {
+                    Text(
+                        text = endTimeText,
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = Color(0xFF222222),
+                            letterSpacing = 1.sp
+                        ),
+                        maxLines = 1
+                    )
+                }
             } else {
                 Spacer(Modifier.weight(1f))
             }
@@ -537,15 +599,16 @@ private fun CalculatorProgressBar(
 @Composable
 private fun TransportControlsRow(
     isConverting: Boolean,
+    isPlaying: Boolean = false,
+    hasMedia: Boolean = false,
     onPreviousClick: () -> Unit,
     onRewindClick: () -> Unit,
-    onConvertClick: () -> Unit,
+    onCenterClick: () -> Unit,
     onFastForwardClick: () -> Unit,
     onNextClick: () -> Unit,
     onSearchClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Volume mute state (local toggle)
     var isMuted by remember { mutableStateOf(false) }
     val view = LocalView.current
 
@@ -559,7 +622,7 @@ private fun TransportControlsRow(
         Spacer(Modifier.width(8.dp))
         GlossyButton(onClick = onRewindClick, size = 44) { RewindIcon() }
         Spacer(Modifier.width(10.dp))
-        PlayButton(isConverting = isConverting, onClick = onConvertClick)
+        CenterButton(isConverting = isConverting, isPlaying = isPlaying, hasMedia = hasMedia, onClick = onCenterClick)
         Spacer(Modifier.width(10.dp))
         GlossyButton(onClick = onFastForwardClick, size = 44) { FastForwardIcon() }
         Spacer(Modifier.width(8.dp))
@@ -645,10 +708,16 @@ private fun DrawScope.drawAquaOverlay(isPressed: Boolean, style: AquaStyle) {
     )
 }
 
-// ── Center Convert Button ──────────────────────────────────────
+// ── Center Button (play/pause/stop) ──────────────────────────────
 
 @Composable
-private fun PlayButton(isConverting: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun CenterButton(
+    isConverting: Boolean,
+    isPlaying: Boolean,
+    hasMedia: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
@@ -669,23 +738,33 @@ private fun PlayButton(isConverting: Boolean, onClick: () -> Unit, modifier: Mod
                 .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
-            // Play triangle (or stop square when converting)
             Canvas(modifier = Modifier.size(28.dp)) {
                 val cx = size.width / 2f; val cy = size.height / 2f
                 val c = Color(0xFF2A2A2A)
-                if (isConverting) {
-                    // Stop square
-                    val s = size.minDimension * 0.32f
-                    drawRect(c, Offset(cx - s, cy - s), Size(s * 2, s * 2))
-                } else {
-                    // Play triangle — shifted right slightly for optical centering
-                    val path = Path().apply {
-                        moveTo(cx - size.width * 0.22f, cy - size.height * 0.38f)
-                        lineTo(cx + size.width * 0.35f, cy)
-                        lineTo(cx - size.width * 0.22f, cy + size.height * 0.38f)
-                        close()
+                when {
+                    isConverting -> {
+                        // Stop square
+                        val s = size.minDimension * 0.32f
+                        drawRect(c, Offset(cx - s, cy - s), Size(s * 2, s * 2))
                     }
-                    drawPath(path, c)
+                    hasMedia && isPlaying -> {
+                        // Pause bars
+                        val barW = size.minDimension * 0.12f
+                        val barH = size.minDimension * 0.6f
+                        val gap = size.minDimension * 0.1f
+                        drawRect(c, Offset(cx - gap - barW, cy - barH / 2), Size(barW, barH))
+                        drawRect(c, Offset(cx + gap, cy - barH / 2), Size(barW, barH))
+                    }
+                    else -> {
+                        // Play triangle
+                        val path = Path().apply {
+                            moveTo(cx - size.width * 0.22f, cy - size.height * 0.38f)
+                            lineTo(cx + size.width * 0.35f, cy)
+                            lineTo(cx - size.width * 0.22f, cy + size.height * 0.38f)
+                            close()
+                        }
+                        drawPath(path, c)
+                    }
                 }
             }
         }
@@ -730,9 +809,7 @@ private fun FastForwardIcon() {
 private fun VolumeIcon(muted: Boolean) {
     Canvas(Modifier.size(16.dp)) {
         val c = Color(0xFF3A3A3A)
-        // Speaker body
         drawRect(c, Offset(1f, size.height * 0.3f), Size(4f, size.height * 0.4f))
-        // Speaker cone
         drawPath(Path().apply {
             moveTo(5f, size.height * 0.3f)
             lineTo(10f, 2f)
@@ -741,12 +818,71 @@ private fun VolumeIcon(muted: Boolean) {
             close()
         }, c)
         if (muted) {
-            // X mark for mute
             drawLine(Color(0xFFCC3333), Offset(11f, size.height * 0.3f), Offset(size.width - 1f, size.height * 0.7f), 2f)
             drawLine(Color(0xFFCC3333), Offset(11f, size.height * 0.7f), Offset(size.width - 1f, size.height * 0.3f), 2f)
         } else {
-            // Sound waves
             drawArc(c, -40f, 80f, false, Offset(11f, size.height * 0.2f), Size(6f, size.height * 0.6f), style = Stroke(1.5f))
+        }
+    }
+}
+
+// ── Now Playing Info Display ────────────────────────────────────
+
+@Composable
+private fun NowPlayingInfo(
+    title: String,
+    artist: String,
+    album: String,
+    modifier: Modifier = Modifier
+) {
+    val subtitleText = when {
+        artist.isNotBlank() && album.isNotBlank() -> "$artist \u2014 $album"
+        artist.isNotBlank() -> artist
+        album.isNotBlank() -> album
+        else -> ""
+    }
+
+    Box(
+        modifier = modifier
+            .height(38.dp)
+            .shadow(2.dp, RoundedCornerShape(6.dp), ambientColor = Color(0xFF666666), spotColor = Color(0xFF444444))
+            .clip(RoundedCornerShape(6.dp))
+            .background(ProgressBarBg)
+            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF999999), Color(0xFFBBBBBB), Color(0xFF888888)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
+            .drawBehind {
+                drawLine(Color.Black.copy(alpha = 0.15f), Offset(4f, 1f), Offset(size.width - 4f, 1f), strokeWidth = 1.5f)
+                drawLine(Color.White.copy(alpha = 0.3f), Offset(4f, size.height - 2f), Offset(size.width - 4f, size.height - 2f), strokeWidth = 0.5f)
+            }
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = title.ifBlank { "No track" },
+                style = TextStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = Color(0xFF222222),
+                    letterSpacing = 0.5.sp
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (subtitleText.isNotBlank()) {
+                Text(
+                    text = subtitleText,
+                    style = TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        color = Color(0xFF666666),
+                        letterSpacing = 0.5.sp
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

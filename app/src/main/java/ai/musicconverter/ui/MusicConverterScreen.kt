@@ -104,6 +104,7 @@ fun MusicConverterScreen(
     viewModel: MusicConverterViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val playerState by viewModel.playerState.collectAsState()
     val autoConvertEnabled by viewModel.autoConvertEnabled.collectAsState()
     val keepOriginalEnabled by viewModel.keepOriginalEnabled.collectAsState()
     val context = LocalContext.current
@@ -265,14 +266,21 @@ fun MusicConverterScreen(
                 conversionProgress = conversionProgress,
                 elapsedTimeText = elapsedTimeText,
                 notificationText = notificationText,
+                playerState = playerState,
                 onConvertClick = {
                     if (isConverting) viewModel.cancelAllConversions()
                     else showConvertConfirmDialog = true
                 },
+                onPlayPauseClick = { viewModel.togglePlayPause() },
                 onSearchClick = { searchFocusRequester.requestFocus() },
+                onSeekTo = { fraction -> viewModel.seekTo(fraction) },
                 onVariantChanged = { variant ->
                     notificationText = "Aluminum: ${variant.name}"
-                }
+                },
+                onPreviousClick = { viewModel.skipPrevious() },
+                onRewindClick = { viewModel.seekBack() },
+                onFastForwardClick = { viewModel.seekForward() },
+                onNextClick = { viewModel.skipNext() }
             )
         }
     ) { paddingValues ->
@@ -316,12 +324,18 @@ fun MusicConverterScreen(
                 }
                 uiState.musicFiles.isEmpty() -> {
                     EmptyContent(
-                        message = "No music files need conversion",
+                        message = "No music files found",
                         onRefresh = { viewModel.scanForFiles() }
                     )
                 }
                 else -> {
-                    CondensedMediaList(files = displayFiles, totalFiles = uiState.musicFiles.size)
+                    CondensedMediaList(
+                        files = displayFiles,
+                        totalFiles = uiState.musicFiles.size,
+                        onPlayFile = { file ->
+                            viewModel.playFile(file, displayFiles)
+                        }
+                    )
                 }
             }
         }
@@ -502,15 +516,14 @@ private fun MetalTabBar(selectedTab: Int, onTabSelected: (Int) -> Unit) {
 // ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int) {
+private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int, onPlayFile: (MusicFile) -> Unit = {}) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Filter files based on selected tab
     val filteredFiles = when (selectedTab) {
-        1 -> files.filter { it.needsConversion }  // Convert tab
-        2 -> files  // Files tab = all
-        3 -> files.take(0)  // Favorites = empty for now (stubbed)
-        else -> files  // All tab
+        1 -> files.filter { it.needsConversion }
+        2 -> files
+        3 -> files.take(0)
+        else -> files
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -523,7 +536,7 @@ private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int) {
             contentPadding = PaddingValues(0.dp)
         ) {
             items(filteredFiles, key = { it.id }) { file ->
-                MediaTableRow(file = file)
+                MediaTableRow(file = file, onClick = { onPlayFile(file) })
                 HorizontalDivider(color = BoneDivider.copy(alpha = 0.6f), thickness = 0.5.dp)
             }
         }
@@ -547,13 +560,14 @@ private fun MediaTableHeader() {
 }
 
 @Composable
-private fun MediaTableRow(file: MusicFile) {
+private fun MediaTableRow(file: MusicFile, onClick: () -> Unit = {}) {
     val bgColor = if (file.isConverting) Color(0xFFE8E2D4) else Color.Transparent
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(bgColor)
+            .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

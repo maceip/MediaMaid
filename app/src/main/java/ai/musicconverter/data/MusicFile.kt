@@ -11,6 +11,8 @@ data class MusicFile(
     val lastModified: Long,
     val duration: Long = 0L,
     val artist: String? = null,
+    val album: String? = null,
+    val albumId: Long? = null,
     val trackNumber: Int? = null,
     val totalTracks: Int? = null,
     val isConverting: Boolean = false,

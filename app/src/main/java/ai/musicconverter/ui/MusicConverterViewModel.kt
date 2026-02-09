@@ -1,8 +1,16 @@
 package ai.musicconverter.ui
 
 import android.app.Application
+import android.content.ComponentName
+import android.content.ContentUris
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -12,9 +20,13 @@ import androidx.work.workDataOf
 import ai.musicconverter.data.ConversionStatus
 import ai.musicconverter.data.MusicFile
 import ai.musicconverter.data.MusicFileScanner
+import ai.musicconverter.data.PlayerState
 import ai.musicconverter.data.PreferencesManager
 import ai.musicconverter.service.AutoConvertService
+import ai.musicconverter.service.MediaPlaybackService
 import ai.musicconverter.worker.ConversionWorker
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -27,6 +39,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.File
 import javax.inject.Inject
 
 data class MusicConverterUiState(
@@ -36,7 +49,6 @@ data class MusicConverterUiState(
     val error: String? = null,
     val hasStoragePermission: Boolean = false,
     val searchQuery: String = "",
-    // Batch conversion progress
     val totalToConvert: Int = 0,
     val convertedCount: Int = 0,
     val isBatchConverting: Boolean = false
@@ -61,14 +73,15 @@ class MusicConverterViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(MusicConverterUiState())
     val uiState: StateFlow<MusicConverterUiState> = _uiState.asStateFlow()
 
+    private val _playerState = MutableStateFlow(PlayerState())
+    val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
+
     val autoConvertEnabled: StateFlow<Boolean> = preferencesManager.autoConvertEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    // Keep Original Files: OFF = delete originals (default), ON = keep originals
     val keepOriginalEnabled: StateFlow<Boolean> = preferencesManager.keepOriginalFiles
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    // Batching constants - prevent overwhelming the system
     private companion object {
         const val MAX_CONCURRENT_CONVERSIONS = 3
         const val BATCH_SIZE = 10
@@ -76,18 +89,145 @@ class MusicConverterViewModel @Inject constructor(
         const val UI_UPDATE_DEBOUNCE_MS = 100L
     }
 
-    // Track files being converted by path for O(1) lookups
     private val convertingFiles = mutableSetOf<String>()
-
-    // Job for batch conversion - can be cancelled
     private var batchConversionJob: Job? = null
-
-    // Pending UI updates - debounced
     private var pendingUiUpdate: Job? = null
+
+    // Player
+    private var mediaController: MediaController? = null
+    private var controllerFuture: ListenableFuture<MediaController>? = null
+    private var positionUpdateJob: Job? = null
 
     init {
         observeWorkProgress()
+        connectToPlayer()
     }
+
+    // ── Player ──────────────────────────────────────────────────
+
+    private fun connectToPlayer() {
+        val context = getApplication<Application>()
+        val sessionToken = SessionToken(
+            context,
+            ComponentName(context, MediaPlaybackService::class.java)
+        )
+        val future = MediaController.Builder(context, sessionToken).buildAsync()
+        controllerFuture = future
+        future.addListener({
+            try {
+                mediaController = future.get()
+                setupPlayerListener()
+                startPositionUpdates()
+                Timber.d("Connected to MediaPlaybackService")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to connect to MediaPlaybackService")
+            }
+        }, MoreExecutors.directExecutor())
+    }
+
+    private fun setupPlayerListener() {
+        mediaController?.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) = refreshPlayerState()
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = refreshPlayerState()
+            override fun onPlaybackStateChanged(playbackState: Int) = refreshPlayerState()
+        })
+    }
+
+    private fun startPositionUpdates() {
+        positionUpdateJob?.cancel()
+        positionUpdateJob = viewModelScope.launch {
+            while (isActive) {
+                val controller = mediaController
+                if (controller != null && controller.mediaItemCount > 0) {
+                    _playerState.update {
+                        it.copy(
+                            position = controller.currentPosition.coerceAtLeast(0L),
+                            duration = controller.duration.coerceAtLeast(0L),
+                            isPlaying = controller.isPlaying
+                        )
+                    }
+                }
+                delay(250)
+            }
+        }
+    }
+
+    private fun refreshPlayerState() {
+        val controller = mediaController ?: return
+        val metadata = controller.mediaMetadata
+        _playerState.update {
+            PlayerState(
+                isPlaying = controller.isPlaying,
+                currentTitle = metadata.title?.toString() ?: "",
+                currentArtist = metadata.artist?.toString() ?: "",
+                currentAlbum = metadata.albumTitle?.toString() ?: "",
+                position = controller.currentPosition.coerceAtLeast(0L),
+                duration = controller.duration.coerceAtLeast(0L),
+                hasMedia = controller.mediaItemCount > 0
+            )
+        }
+    }
+
+    fun playFile(musicFile: MusicFile, playlist: List<MusicFile>) {
+        val controller = mediaController ?: return
+
+        val mediaItems = playlist.map { file ->
+            val artworkUri = file.albumId?.let {
+                ContentUris.withAppendedId(
+                    Uri.parse("content://media/external/audio/albumart"),
+                    it
+                )
+            }
+            MediaItem.Builder()
+                .setMediaId(file.id)
+                .setUri(Uri.fromFile(File(file.path)))
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(file.name)
+                        .setArtist(file.artist)
+                        .setAlbumTitle(file.album)
+                        .apply { if (artworkUri != null) setArtworkUri(artworkUri) }
+                        .build()
+                )
+                .build()
+        }
+
+        val startIndex = playlist.indexOf(musicFile).coerceAtLeast(0)
+        controller.setMediaItems(mediaItems, startIndex, 0L)
+        controller.prepare()
+        controller.play()
+    }
+
+    fun togglePlayPause() {
+        val controller = mediaController ?: return
+        if (controller.isPlaying) controller.pause() else controller.play()
+    }
+
+    fun skipNext() {
+        mediaController?.seekToNextMediaItem()
+    }
+
+    fun skipPrevious() {
+        mediaController?.seekToPreviousMediaItem()
+    }
+
+    fun seekForward() {
+        mediaController?.seekForward()
+    }
+
+    fun seekBack() {
+        mediaController?.seekBack()
+    }
+
+    fun seekTo(fraction: Float) {
+        val controller = mediaController ?: return
+        val duration = controller.duration
+        if (duration > 0) {
+            controller.seekTo((fraction * duration).toLong())
+        }
+    }
+
+    // ── Storage / Scanning ──────────────────────────────────────
 
     fun setStoragePermissionGranted(granted: Boolean) {
         _uiState.update { it.copy(hasStoragePermission = granted) }
@@ -101,8 +241,8 @@ class MusicConverterViewModel @Inject constructor(
             _uiState.update { it.copy(status = ConversionStatus.SCANNING, error = null) }
 
             try {
-                val files = scanner.scanForMusicFiles()
-                Timber.d("Found ${files.size} files needing conversion")
+                val files = scanner.scanForMusicFiles(includeConverted = true)
+                Timber.d("Found ${files.size} music files")
 
                 _uiState.update {
                     it.copy(
@@ -122,9 +262,8 @@ class MusicConverterViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Convert a single file - used for individual item conversion
-     */
+    // ── Conversion ──────────────────────────────────────────────
+
     fun convertFile(musicFile: MusicFile) {
         if (convertingFiles.contains(musicFile.path)) {
             Timber.d("File already being converted: ${musicFile.path}")
@@ -135,10 +274,6 @@ class MusicConverterViewModel @Inject constructor(
         scheduleUiUpdate()
     }
 
-    /**
-     * Convert all files with proper batching to prevent crashes.
-     * Files are processed in batches with concurrency limits.
-     */
     fun convertAllFiles() {
         val filesToConvert = _uiState.value.musicFiles
             .filter { it.needsConversion && !convertingFiles.contains(it.path) }
@@ -168,7 +303,6 @@ class MusicConverterViewModel @Inject constructor(
                     break
                 }
 
-                // Wait if we have too many concurrent jobs
                 while (isActive && getActiveConversionCount() >= MAX_CONCURRENT_CONVERSIONS) {
                     delay(200)
                 }
@@ -178,7 +312,6 @@ class MusicConverterViewModel @Inject constructor(
                 enqueueConversion(file)
                 enqueued++
 
-                // Small delay between enqueues to prevent overwhelming WorkManager
                 if (enqueued % BATCH_SIZE == 0) {
                     scheduleUiUpdate()
                     delay(ENQUEUE_DELAY_MS)
@@ -190,9 +323,6 @@ class MusicConverterViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Enqueue a single file for conversion
-     */
     private fun enqueueConversion(musicFile: MusicFile) {
         val keepOriginal = keepOriginalEnabled.value
         val deleteOriginal = !keepOriginal
@@ -225,9 +355,6 @@ class MusicConverterViewModel @Inject constructor(
         convertingFiles.add(musicFile.path)
     }
 
-    /**
-     * Get count of currently active (running + enqueued) conversions
-     */
     private fun getActiveConversionCount(): Int {
         return try {
             workManager.getWorkInfosByTag(ConversionWorker.WORK_TAG)
@@ -239,9 +366,6 @@ class MusicConverterViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Schedule a debounced UI update to prevent rapid-fire state changes
-     */
     private fun scheduleUiUpdate() {
         pendingUiUpdate?.cancel()
         pendingUiUpdate = viewModelScope.launch {
@@ -250,9 +374,6 @@ class MusicConverterViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Update UI state based on the converting files set
-     */
     private fun updateUiFromConvertingSet() {
         _uiState.update { state ->
             state.copy(
@@ -273,15 +394,11 @@ class MusicConverterViewModel @Inject constructor(
         viewModelScope.launch {
             workManager.getWorkInfosByTagFlow(ConversionWorker.WORK_TAG)
                 .collect { workInfos ->
-                    // Process in batches and debounce to avoid UI storms
                     processWorkInfosBatched(workInfos)
                 }
         }
     }
 
-    /**
-     * Process work infos efficiently without causing UI storms
-     */
     private fun processWorkInfosBatched(workInfos: List<WorkInfo>) {
         var hasChanges = false
         val completedPaths = mutableListOf<String>()
@@ -311,7 +428,7 @@ class MusicConverterViewModel @Inject constructor(
                         hasChanges = true
                     }
                 }
-                else -> { /* RUNNING, ENQUEUED, BLOCKED - no state change needed */ }
+                else -> { /* RUNNING, ENQUEUED, BLOCKED */ }
             }
         }
 
@@ -354,6 +471,8 @@ class MusicConverterViewModel @Inject constructor(
         }
     }
 
+    // ── Settings ────────────────────────────────────────────────
+
     fun toggleAutoConvert() {
         viewModelScope.launch {
             val currentEnabled = autoConvertEnabled.value
@@ -377,17 +496,12 @@ class MusicConverterViewModel @Inject constructor(
     }
 
     fun cancelAllConversions() {
-        // Cancel the batch job first
         batchConversionJob?.cancel()
         batchConversionJob = null
 
-        // Cancel all WorkManager work
         workManager.cancelAllWorkByTag(ConversionWorker.WORK_TAG)
-
-        // Clear our tracking set
         convertingFiles.clear()
 
-        // Reset UI state
         _uiState.update { state ->
             state.copy(
                 musicFiles = state.musicFiles.map { file ->
@@ -412,5 +526,14 @@ class MusicConverterViewModel @Inject constructor(
 
     fun updateSearchQuery(query: String) {
         _uiState.update { it.copy(searchQuery = query) }
+    }
+
+    // ── Cleanup ─────────────────────────────────────────────────
+
+    override fun onCleared() {
+        super.onCleared()
+        positionUpdateJob?.cancel()
+        controllerFuture?.let { MediaController.releaseFuture(it) }
+        mediaController = null
     }
 }

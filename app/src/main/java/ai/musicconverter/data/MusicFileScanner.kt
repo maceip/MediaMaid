@@ -17,7 +17,7 @@ class MusicFileScanner @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
 
-    suspend fun scanForMusicFiles(): List<MusicFile> = withContext(Dispatchers.IO) {
+    suspend fun scanForMusicFiles(includeConverted: Boolean = false): List<MusicFile> = withContext(Dispatchers.IO) {
         val musicFiles = mutableListOf<MusicFile>()
 
         // Try MediaStore first for better performance
@@ -39,7 +39,7 @@ class MusicFileScanner @Inject constructor(
         // Remove duplicates and sort by last modified (most recent first)
         musicFiles
             .distinctBy { it.path }
-            .filter { it.needsConversion }
+            .let { list -> if (includeConverted) list else list.filter { it.needsConversion } }
             .sortedByDescending { it.lastModified }
     }
 
@@ -54,6 +54,8 @@ class MusicFileScanner @Inject constructor(
             MediaStore.Audio.Media.DATE_MODIFIED,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ALBUM_ID,
             MediaStore.Audio.Media.TRACK
         )
 
@@ -74,6 +76,8 @@ class MusicFileScanner @Inject constructor(
             val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
             val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
             val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+            val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+            val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val trackColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
 
             // Count total tracks per album path for "X of Y" display
@@ -87,6 +91,8 @@ class MusicFileScanner @Inject constructor(
                 val lastModified = cursor.getLong(dateColumn) * 1000
                 val duration = cursor.getLong(durationColumn)
                 val artist = cursor.getString(artistColumn)?.takeIf { it != "<unknown>" }
+                val album = cursor.getString(albumColumn)?.takeIf { it != "<unknown>" }
+                val albumId = cursor.getLong(albumIdColumn).takeIf { it > 0 }
                 val trackRaw = cursor.getInt(trackColumn)
                 val trackNumber = if (trackRaw > 0) trackRaw % 1000 else null
 
@@ -106,6 +112,8 @@ class MusicFileScanner @Inject constructor(
                         lastModified = lastModified,
                         duration = duration,
                         artist = artist,
+                        album = album,
+                        albumId = albumId,
                         trackNumber = trackNumber
                     )
                 )
