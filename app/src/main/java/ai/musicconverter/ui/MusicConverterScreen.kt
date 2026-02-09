@@ -117,6 +117,7 @@ fun MusicConverterScreen(
     viewModel: MusicConverterViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val playerState by viewModel.playerState.collectAsState()
     val autoConvertEnabled by viewModel.autoConvertEnabled.collectAsState()
     val keepOriginalEnabled by viewModel.keepOriginalEnabled.collectAsState()
     val context = LocalContext.current
@@ -278,14 +279,21 @@ fun MusicConverterScreen(
                 conversionProgress = conversionProgress,
                 elapsedTimeText = elapsedTimeText,
                 notificationText = notificationText,
+                playerState = playerState,
                 onConvertClick = {
                     if (isConverting) viewModel.cancelAllConversions()
                     else showConvertConfirmDialog = true
                 },
+                onPlayPauseClick = { viewModel.togglePlayPause() },
                 onSearchClick = { searchFocusRequester.requestFocus() },
+                onSeekTo = { fraction -> viewModel.seekTo(fraction) },
                 onVariantChanged = { variant ->
                     notificationText = "Aluminum: ${variant.name}"
-                }
+                },
+                onPreviousClick = { viewModel.skipPrevious() },
+                onRewindClick = { viewModel.seekBack() },
+                onFastForwardClick = { viewModel.seekForward() },
+                onNextClick = { viewModel.skipNext() }
             )
         }
     ) { paddingValues ->
@@ -329,12 +337,18 @@ fun MusicConverterScreen(
                 }
                 uiState.musicFiles.isEmpty() -> {
                     EmptyContent(
-                        message = "No music files need conversion",
+                        message = "No music files found",
                         onRefresh = { viewModel.scanForFiles() }
                     )
                 }
                 else -> {
-                    CondensedMediaList(files = displayFiles, totalFiles = uiState.musicFiles.size)
+                    CondensedMediaList(
+                        files = displayFiles,
+                        totalFiles = uiState.musicFiles.size,
+                        onPlayFile = { file ->
+                            viewModel.playFile(file, displayFiles)
+                        }
+                    )
                 }
             }
         }
@@ -515,16 +529,15 @@ private fun MetalTabBar(selectedTab: Int, onTabSelected: (Int) -> Unit) {
 // ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int) {
+private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int, onPlayFile: (MusicFile) -> Unit = {}) {
     var selectedTab by remember { mutableIntStateOf(0) }
     val checkedFiles = remember { mutableStateMapOf<String, Boolean>() }
 
-    // Filter files based on selected tab
     val filteredFiles = when (selectedTab) {
-        1 -> files.filter { it.needsConversion }  // Convert tab
-        2 -> files  // Files tab = all
-        3 -> files.take(0)  // Favorites = empty for now (stubbed)
-        else -> files  // All tab
+        1 -> files.filter { it.needsConversion }
+        2 -> files
+        3 -> files.take(0)
+        else -> files
     }
 
     // Default all files to checked
@@ -549,7 +562,8 @@ private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int) {
                     file = file,
                     isEvenRow = index % 2 == 0,
                     isChecked = checkedFiles[file.id] ?: true,
-                    onCheckedChange = { checkedFiles[file.id] = it }
+                    onCheckedChange = { checkedFiles[file.id] = it },
+                    onClick = { onPlayFile(file) }
                 )
             }
         }
@@ -606,7 +620,8 @@ private fun MediaTableRow(
     file: MusicFile,
     isEvenRow: Boolean,
     isChecked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    onClick: () -> Unit = {}
 ) {
     val stripeBg = if (isEvenRow) TableWhite else TableBlueStripe
     val bgColor = if (file.isConverting) Color(0xFFD4E4FF) else stripeBg
@@ -615,6 +630,7 @@ private fun MediaTableRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(bgColor)
+            .clickable(onClick = onClick)
             .padding(start = 4.dp, end = 12.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
