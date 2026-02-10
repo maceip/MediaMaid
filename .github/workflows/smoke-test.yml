@@ -59,8 +59,11 @@ jobs:
         id: apk
         run: echo "path=$(find smoke-apk -name '*.apk' | head -1)" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for emulator
+      - name: Smoke test (flock serialized)
         run: |
+          exec 9>/tmp/emulator-smoke.lock
+          flock -w 300 9 || { echo "::error::Timed out waiting for emulator lock"; exit 1; }
+
           adb wait-for-device
           TIMEOUT=120; ELAPSED=0
           while [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]; do
@@ -68,8 +71,6 @@ jobs:
             sleep 2; ELAPSED=$((ELAPSED + 2))
           done
 
-      - name: Install, launch, check for crash
-        run: |
           PKG=ai.musicconverter
           adb install -r "${{ steps.apk.outputs.path }}"
           adb shell am force-stop $PKG
