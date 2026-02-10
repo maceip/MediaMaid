@@ -293,6 +293,7 @@ fun MusicConverterScreen(
                 notificationText = notificationText,
                 playerState = playerState,
                 showMusicRain = showMusicRain,
+                isScanning = isPullRefreshing && uiState.status == ConversionStatus.SCANNING,
                 onMusicRainComplete = { showMusicRain = false },
                 onConvertClick = {
                     if (isConverting) viewModel.cancelAllConversions()
@@ -364,7 +365,6 @@ fun MusicConverterScreen(
                         },
                         onRefresh = {
                             isPullRefreshing = true
-                            showMusicRain = true
                             viewModel.scanForFiles()
                         }
                     )

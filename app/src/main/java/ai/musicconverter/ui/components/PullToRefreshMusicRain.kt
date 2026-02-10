@@ -3,9 +3,11 @@ package ai.musicconverter.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -24,9 +26,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -144,25 +148,37 @@ private data class RainNote(
 
 /**
  * Animated overlay that renders falling dot-matrix music notes
- * on a dark phosphor-green display. Designed to overlay the
- * CalculatorProgressBar when a pull-to-refresh is triggered.
+ * on a dark phosphor-green display. Supports both one-shot mode
+ * (for transitions) and looping mode (for persistent bottom bar display).
  */
 @Composable
 fun DotMatrixMusicRain(
     isPlaying: Boolean,
     modifier: Modifier = Modifier,
+    loop: Boolean = false,
     onComplete: () -> Unit = {}
 ) {
     val progress = remember { Animatable(0f) }
 
-    LaunchedEffect(isPlaying) {
+    LaunchedEffect(isPlaying, loop) {
         if (isPlaying) {
-            progress.snapTo(0f)
-            progress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 1800, easing = LinearEasing)
-            )
-            onComplete()
+            if (loop) {
+                // Loop the animation continuously while scanning
+                while (true) {
+                    progress.snapTo(0f)
+                    progress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(durationMillis = 2400, easing = LinearEasing)
+                    )
+                }
+            } else {
+                progress.snapTo(0f)
+                progress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 1800, easing = LinearEasing)
+                )
+                onComplete()
+            }
         } else {
             progress.snapTo(0f)
         }
@@ -210,10 +226,10 @@ fun DotMatrixMusicRain(
             val yNorm = -0.3f + t * note.speed * 2.2f
             if (yNorm > 1.6f) return@forEach
 
-            // Fade in at start, fade out near end
+            // In loop mode, no fade-out at end (seamless wrap)
             val alpha = when {
                 t < 0.06f -> t / 0.06f
-                p > 0.82f -> ((1f - p) / 0.18f).coerceIn(0f, 1f)
+                !loop && p > 0.82f -> ((1f - p) / 0.18f).coerceIn(0f, 1f)
                 else -> 1f
             } * 0.88f
 
@@ -243,14 +259,25 @@ fun DotMatrixMusicRain(
     }
 }
 
+// ── Aluminum-style gradient for pull reveal ──────────────────────
+
+private val PullAluminumGradient = Brush.verticalGradient(
+    colorStops = arrayOf(
+        0.0f to Color(0xFFD4D4D6),   // light aluminum top
+        0.5f to Color(0xFFCBCBCE),   // mid
+        0.85f to Color(0xFFB8B8BC),  // darker below
+        1.0f to Color(0xFFA4A4A8),   // dark aluminum bottom edge
+    )
+)
+
 // ── Pull-to-Refresh Wrapper ─────────────────────────────────────
 
 private val PULL_THRESHOLD = 72.dp
 
 /**
  * Wraps scrollable content (e.g. LazyColumn) to add pull-to-refresh
- * behavior. Shows a retro dot-matrix music note indicator while
- * pulling, and triggers [onRefresh] when released past the threshold.
+ * behavior. Reveals a brushed-aluminum surface while pulling, and
+ * snaps back with a soft-close drawer animation when released.
  */
 @Composable
 fun MusicPullToRefreshBox(
@@ -291,9 +318,16 @@ fun MusicPullToRefreshBox(
 
             override suspend fun onPreFling(available: Velocity): Velocity {
                 val triggered = pullDistance >= thresholdPx
-                // Smooth snap-back
+                // Soft-close drawer: high stiffness spring with
+                // moderate damping for a firm, cushioned snap-back
                 val anim = Animatable(pullDistance)
-                anim.animateTo(0f, tween(220)) { pullDistance = value }
+                anim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ) { pullDistance = value.coerceAtLeast(0f) }
                 if (triggered) onRefresh()
                 return Velocity.Zero
             }
@@ -312,9 +346,9 @@ fun MusicPullToRefreshBox(
             content()
         }
 
-        // Pull indicator overlay
+        // Aluminum reveal behind the list
         if (pullDistance > 0f) {
-            PullMusicIndicator(
+            PullAluminumReveal(
                 pullFraction = pullFraction,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -325,101 +359,98 @@ fun MusicPullToRefreshBox(
     }
 }
 
-// ── Pull Indicator (retro display strip) ────────────────────────
+// ── Pull Indicator (aluminum reveal strip) ──────────────────────
 
+/**
+ * Brushed aluminum surface revealed when pulling down, matching
+ * the bottom bar material. Shows a subtle refresh arrow that
+ * intensifies as the user approaches the threshold.
+ */
 @Composable
-private fun PullMusicIndicator(
+private fun PullAluminumReveal(
     pullFraction: Float,
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pullIndicator")
-    val wobble by infiniteTransition.animateFloat(
+    val shimmer by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 6.28f,
         animationSpec = infiniteRepeatable(
-            animation = tween(700, easing = LinearEasing),
+            animation = tween(1200, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "wobble"
+        label = "shimmer"
     )
 
     val pastThreshold = pullFraction >= 1f
 
-    Canvas(
+    Box(
         modifier = modifier
             .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
-            .background(DisplayDark)
-    ) {
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        val noteAlpha = (pullFraction * 0.85f).coerceIn(0f, 0.92f)
-
-        // Scale the central note with pull distance
-        val scale = pullFraction.coerceIn(0f, 1.2f)
-        val px = 3.dp.toPx() * scale
-        if (px < 0.5f) return@Canvas
-
-        val wiggle = if (pastThreshold) sin(wobble.toDouble()).toFloat() * 3.dp.toPx() else 0f
-
-        // Central eighth note
-        val pattern = NOTE_EIGHTH
-        val noteW = pattern.maxOf { it.length } * px
-        val noteH = pattern.size * px
-
-        drawDotMatrixPattern(
-            pattern = pattern,
-            topLeft = Offset(cx - noteW / 2 + wiggle, cy - noteH / 2),
-            pixelSize = px,
-            color = PhosphorGreen.copy(alpha = noteAlpha)
-        )
-
-        // Flanking quarter notes (appear after 40% pull)
-        if (pullFraction > 0.4f) {
-            val sideAlpha = ((pullFraction - 0.4f) / 0.6f).coerceIn(0f, 0.65f)
-            val sidePx = px * 0.6f
-            val sidePattern = NOTE_QUARTER
-            val sideH = sidePattern.size * sidePx
-            val sideWiggle = if (pastThreshold) -wiggle * 0.6f else 0f
-
-            drawDotMatrixPattern(
-                pattern = sidePattern,
-                topLeft = Offset(cx - noteW * 2f + sideWiggle, cy - sideH / 2),
-                pixelSize = sidePx,
-                color = PhosphorGreen.copy(alpha = sideAlpha)
-            )
-            drawDotMatrixPattern(
-                pattern = sidePattern,
-                topLeft = Offset(cx + noteW * 1.3f - sideWiggle, cy - sideH / 2),
-                pixelSize = sidePx,
-                color = PhosphorGreen.copy(alpha = sideAlpha)
-            )
-        }
-
-        // "Release to refresh" bounce dots when past threshold
-        if (pastThreshold) {
-            val dotY = cy + noteH / 2f + 5.dp.toPx()
-            val dotR = 1.5.dp.toPx()
-            val bounce = sin(wobble.toDouble() * 2).toFloat() * 2.dp.toPx()
-            for (i in -1..1) {
-                drawCircle(
-                    color = PhosphorGreen.copy(alpha = 0.55f),
-                    radius = dotR,
-                    center = Offset(
-                        cx + i * 5.dp.toPx(),
-                        dotY + abs(i) * 2.dp.toPx() + bounce
-                    )
-                )
+            .background(PullAluminumGradient)
+            .drawBehind {
+                // Brushed-metal horizontal grain lines (matches bottom bar)
+                val lineSpacing = 1.5f
+                var y = 0f
+                while (y < size.height) {
+                    val alpha = ((y / size.height) * 0.03f + 0.01f).coerceIn(0f, 0.05f)
+                    drawLine(Color.Black.copy(alpha = alpha), Offset(0f, y), Offset(size.width, y), strokeWidth = 0.5f)
+                    y += lineSpacing
+                }
+                // Top edge highlight
+                drawLine(Color.White.copy(alpha = 0.7f), Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 1.5f)
+                // Bottom shadow edge (where content meets)
+                drawLine(Color.Black.copy(alpha = 0.15f), Offset(0f, size.height - 1f), Offset(size.width, size.height - 1f), strokeWidth = 1.5f)
             }
-        }
+    ) {
+        // Refresh arrow indicator drawn on the aluminum surface
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
 
-        // Scanlines
-        for (y in 0..size.height.toInt() step 2) {
-            drawLine(
-                Color.Black.copy(alpha = 0.08f),
-                Offset(0f, y.toFloat()),
-                Offset(size.width, y.toFloat()),
-                0.5f
+            // Circular refresh arrow (aluminum-embossed style)
+            val arrowAlpha = (pullFraction * 0.6f).coerceIn(0f, 0.7f)
+            val arrowColor = Color(0xFF555555).copy(alpha = arrowAlpha)
+            val arrowRadius = 10.dp.toPx() * pullFraction.coerceIn(0.3f, 1f)
+            val rotation = if (pastThreshold) shimmer * 57.3f else pullFraction * 270f
+
+            // Draw arc
+            drawArc(
+                color = arrowColor,
+                startAngle = rotation,
+                sweepAngle = 270f,
+                useCenter = false,
+                topLeft = Offset(cx - arrowRadius, cy - arrowRadius),
+                size = Size(arrowRadius * 2, arrowRadius * 2),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
             )
+
+            // Arrowhead at end of arc
+            val headAngle = Math.toRadians((rotation + 270.0))
+            val headX = cx + arrowRadius * kotlin.math.cos(headAngle).toFloat()
+            val headY = cy + arrowRadius * kotlin.math.sin(headAngle).toFloat()
+            drawCircle(
+                color = arrowColor,
+                radius = 2.5.dp.toPx(),
+                center = Offset(headX, headY)
+            )
+
+            // Three bounce dots below arrow when past threshold
+            if (pastThreshold) {
+                val dotY = cy + arrowRadius + 8.dp.toPx()
+                val dotR = 1.5.dp.toPx()
+                val bounce = sin(shimmer.toDouble() * 2).toFloat() * 2.dp.toPx()
+                for (i in -1..1) {
+                    drawCircle(
+                        color = Color(0xFF555555).copy(alpha = 0.5f),
+                        radius = dotR,
+                        center = Offset(
+                            cx + i * 6.dp.toPx(),
+                            dotY + abs(i) * 2.dp.toPx() + bounce
+                        )
+                    )
+                }
+            }
         }
     }
 }
