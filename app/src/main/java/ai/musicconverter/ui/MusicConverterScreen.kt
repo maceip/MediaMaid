@@ -94,6 +94,7 @@ import ai.musicconverter.ui.components.AluminumVariant
 import ai.musicconverter.ui.components.AquaStyle
 import ai.musicconverter.ui.components.BrushedMetalBottomBar
 import ai.musicconverter.ui.components.GelButton
+import ai.musicconverter.ui.components.MusicPullToRefreshBox
 import ai.musicconverter.ui.components.aluminumBackgroundModifier
 import kotlinx.coroutines.delay
 
@@ -143,6 +144,17 @@ fun MusicConverterScreen(
         (uiState.convertedCount % 3600) / 60,
         uiState.convertedCount % 60
     )
+
+    // Pull-to-refresh state
+    var showMusicRain by remember { mutableStateOf(false) }
+    var isPullRefreshing by remember { mutableStateOf(false) }
+
+    // Reset pull-refresh flag when scanning completes
+    LaunchedEffect(uiState.status) {
+        if (isPullRefreshing && uiState.status != ConversionStatus.SCANNING) {
+            isPullRefreshing = false
+        }
+    }
 
     // Notification text for calculator display (replaces toasts/snackbars)
     var notificationText by remember { mutableStateOf<String?>(null) }
@@ -280,6 +292,8 @@ fun MusicConverterScreen(
                 elapsedTimeText = elapsedTimeText,
                 notificationText = notificationText,
                 playerState = playerState,
+                showMusicRain = showMusicRain,
+                onMusicRainComplete = { showMusicRain = false },
                 onConvertClick = {
                     if (isConverting) viewModel.cancelAllConversions()
                     else showConvertConfirmDialog = true
@@ -332,10 +346,10 @@ fun MusicConverterScreen(
                         }
                     )
                 }
-                uiState.status == ConversionStatus.SCANNING -> {
+                uiState.status == ConversionStatus.SCANNING && !isPullRefreshing -> {
                     LoadingContent(message = "Scanning for music files...")
                 }
-                uiState.musicFiles.isEmpty() -> {
+                uiState.musicFiles.isEmpty() && !isPullRefreshing -> {
                     EmptyContent(
                         message = "No music files found",
                         onRefresh = { viewModel.scanForFiles() }
@@ -347,6 +361,11 @@ fun MusicConverterScreen(
                         totalFiles = uiState.musicFiles.size,
                         onPlayFile = { file ->
                             viewModel.playFile(file, displayFiles)
+                        },
+                        onRefresh = {
+                            isPullRefreshing = true
+                            showMusicRain = true
+                            viewModel.scanForFiles()
                         }
                     )
                 }
@@ -529,7 +548,12 @@ private fun MetalTabBar(selectedTab: Int, onTabSelected: (Int) -> Unit) {
 // ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int, onPlayFile: (MusicFile) -> Unit = {}) {
+private fun CondensedMediaList(
+    files: List<MusicFile>,
+    totalFiles: Int,
+    onPlayFile: (MusicFile) -> Unit = {},
+    onRefresh: () -> Unit = {}
+) {
     var selectedTab by remember { mutableIntStateOf(0) }
     val checkedFiles = remember { mutableStateMapOf<String, Boolean>() }
 
@@ -551,20 +575,25 @@ private fun CondensedMediaList(files: List<MusicFile>, totalFiles: Int, onPlayFi
         MetalTabBar(selectedTab = selectedTab, onTabSelected = { selectedTab = it })
         MediaTableHeader()
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(TableWhite),
-            contentPadding = PaddingValues(0.dp)
+        MusicPullToRefreshBox(
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize()
         ) {
-            itemsIndexed(filteredFiles, key = { _, file -> file.id }) { index, file ->
-                MediaTableRow(
-                    file = file,
-                    isEvenRow = index % 2 == 0,
-                    isChecked = checkedFiles[file.id] ?: true,
-                    onCheckedChange = { checkedFiles[file.id] = it },
-                    onClick = { onPlayFile(file) }
-                )
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(TableWhite),
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                itemsIndexed(filteredFiles, key = { _, file -> file.id }) { index, file ->
+                    MediaTableRow(
+                        file = file,
+                        isEvenRow = index % 2 == 0,
+                        isChecked = checkedFiles[file.id] ?: true,
+                        onCheckedChange = { checkedFiles[file.id] = it },
+                        onClick = { onPlayFile(file) }
+                    )
+                }
             }
         }
     }
