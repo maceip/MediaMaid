@@ -314,6 +314,8 @@ fun BrushedMetalBottomBar(
     elapsedTimeText: String,
     notificationText: String? = null,
     playerState: PlayerState = PlayerState(),
+    showMusicRain: Boolean = false,
+    onMusicRainComplete: () -> Unit = {},
     onConvertClick: () -> Unit,
     onPlayPauseClick: () -> Unit = {},
     onSearchClick: () -> Unit,
@@ -355,20 +357,31 @@ fun BrushedMetalBottomBar(
                 )
             }
 
-            // ── Progress / scrubber display ──
-            CalculatorProgressBar(
-                progress = if (playerState.hasMedia) playerState.progress else conversionProgress,
-                timeText = if (playerState.hasMedia) playerState.displayPosition
-                           else notificationText ?: elapsedTimeText,
-                endTimeText = if (playerState.hasMedia) playerState.displayDuration else null,
-                isNotification = notificationText != null && !playerState.hasMedia,
-                isPlayerMode = playerState.hasMedia,
-                onSeek = if (playerState.hasMedia) onSeekTo else null,
+            // ── Progress / scrubber display (with music rain overlay) ──
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp)
                     .padding(top = if (playerState.hasMedia) 2.dp else 8.dp, bottom = 4.dp)
-            )
+            ) {
+                CalculatorProgressBar(
+                    progress = if (playerState.hasMedia) playerState.progress else conversionProgress,
+                    timeText = if (playerState.hasMedia) playerState.displayPosition
+                               else notificationText ?: elapsedTimeText,
+                    endTimeText = if (playerState.hasMedia) playerState.displayDuration else null,
+                    isNotification = notificationText != null && !playerState.hasMedia,
+                    isPlayerMode = playerState.hasMedia,
+                    onSeek = if (playerState.hasMedia) onSeekTo else null,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                DotMatrixMusicRain(
+                    isPlaying = showMusicRain,
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(6.dp)),
+                    onComplete = onMusicRainComplete
+                )
+            }
 
             // ── Mini shelf ──
             MiniShelf(Modifier.fillMaxWidth().padding(horizontal = 6.dp))
