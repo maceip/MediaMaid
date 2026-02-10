@@ -55,6 +55,18 @@
             </intent-filter>
         </service>
 
+        <!-- Home screen widget -->
+        <receiver
+            android:name=".widget.MusicWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/music_widget_info" />
+        </receiver>
+
         <!-- Hilt WorkManager Initialization -->
         <provider
             android:name="androidx.startup.InitializationProvider"
