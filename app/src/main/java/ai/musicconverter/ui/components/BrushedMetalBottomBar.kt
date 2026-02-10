@@ -267,7 +267,9 @@ fun GelButton(
     ) { content() }
 }
 
-private val ProgressBarBg = Color(0xFFFAF6E8)
+// Cool LCD panel background — neutral silver-white that blends with aluminum chrome.
+// Avoids the warm cream (FAF6E8) that reads as green on OLED against cool metal.
+private val ProgressBarBg = Color(0xFFF0F1F4)
 private const val RIDGE_Y_FRACTION = 0.68f
 
 // ── Reusable aluminum background modifier (for top bar too) ────
@@ -537,7 +539,7 @@ private fun CalculatorProgressBar(
             .shadow(2.dp, RoundedCornerShape(6.dp), ambientColor = Color(0xFF666666), spotColor = Color(0xFF444444))
             .clip(RoundedCornerShape(6.dp))
             .background(ProgressBarBg)
-            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF999999), Color(0xFFBBBBBB), Color(0xFF888888)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
+            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF8E8E94), Color(0xFFB4B4B8), Color(0xFF84848A)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
             .drawBehind {
                 drawLine(Color.Black.copy(alpha = 0.15f), Offset(4f, 1f), Offset(size.width - 4f, 1f), strokeWidth = 1.5f)
                 drawLine(Color.White.copy(alpha = 0.3f), Offset(4f, size.height - 2f), Offset(size.width - 4f, size.height - 2f), strokeWidth = 0.5f)
@@ -553,7 +555,7 @@ private fun CalculatorProgressBar(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
-                    color = if (isNotification) Color(0xFF8B4513) else Color(0xFF222222),
+                    color = if (isNotification) Color(0xFF7A4010) else Color(0xFF1A1A1A),
                     letterSpacing = if (isPlayerMode) 1.sp else 2.sp
                 ),
                 maxLines = 1
@@ -565,7 +567,7 @@ private fun CalculatorProgressBar(
                         val path = Path().apply {
                             moveTo(size.width / 2, 0f); lineTo(size.width, size.height); lineTo(0f, size.height); close()
                         }
-                        drawPath(path, Color(0xFF222222))
+                        drawPath(path, Color(0xFF1A1A1A))
                     }
                 }
 
@@ -581,9 +583,9 @@ private fun CalculatorProgressBar(
                     },
                     modifier = Modifier.weight(1f).height(18.dp),
                     colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF555555),
-                        activeTrackColor = Color(0xFF777777),
-                        inactiveTrackColor = Color(0xFFCCCCCC)
+                        thumbColor = Color(0xFF4A4A50),
+                        activeTrackColor = Color(0xFF6A6A72),
+                        inactiveTrackColor = Color(0xFFCCCDD0)
                     )
                 )
 
@@ -594,7 +596,7 @@ private fun CalculatorProgressBar(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            color = Color(0xFF222222),
+                            color = Color(0xFF1A1A1A),
                             letterSpacing = 1.sp
                         ),
                         maxLines = 1
@@ -657,10 +659,10 @@ internal fun GlossyButton(onClick: () -> Unit, size: Int, modifier: Modifier = M
     Box(
         modifier = modifier
             .size(size.dp)
-            .shadow(if (isPressed) 1.dp else 4.dp, CircleShape, ambientColor = Color(0xFF777777), spotColor = Color(0xFF555555))
+            .shadow(if (isPressed) 1.dp else 5.dp, CircleShape, ambientColor = Color(0xFF6A6A72), spotColor = Color(0xFF4A4A52))
             .clip(CircleShape)
             .background(if (isPressed) ButtonPressedGradient else ButtonGlossGradient)
-            .border(0.5.dp, ChromeBezelBrush, CircleShape)
+            .border(0.75.dp, ChromeBezelBrush, CircleShape)
             .drawBehind { drawGlossyOverlay(isPressed) }
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -743,7 +745,7 @@ private fun CenterButton(
         // Inner glossy button
         Box(
             modifier = Modifier.size(54.dp)
-                .shadow(if (isPressed) 1.dp else 5.dp, CircleShape, ambientColor = Color(0xFF777777), spotColor = Color(0xFF555555))
+                .shadow(if (isPressed) 1.dp else 5.dp, CircleShape, ambientColor = Color(0xFF6A6A72), spotColor = Color(0xFF4A4A52))
                 .clip(CircleShape)
                 .background(if (isPressed) ButtonPressedGradient else ButtonGlossGradient)
                 .border(0.5.dp, ChromeBezelBrush, CircleShape)
@@ -861,7 +863,7 @@ private fun NowPlayingInfo(
             .shadow(2.dp, RoundedCornerShape(6.dp), ambientColor = Color(0xFF666666), spotColor = Color(0xFF444444))
             .clip(RoundedCornerShape(6.dp))
             .background(ProgressBarBg)
-            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF999999), Color(0xFFBBBBBB), Color(0xFF888888)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
+            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF8E8E94), Color(0xFFB4B4B8), Color(0xFF84848A)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
             .drawBehind {
                 drawLine(Color.Black.copy(alpha = 0.15f), Offset(4f, 1f), Offset(size.width - 4f, 1f), strokeWidth = 1.5f)
                 drawLine(Color.White.copy(alpha = 0.3f), Offset(4f, size.height - 2f), Offset(size.width - 4f, size.height - 2f), strokeWidth = 0.5f)
@@ -877,7 +879,7 @@ private fun NowPlayingInfo(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
-                    color = Color(0xFF222222),
+                    color = Color(0xFF1A1A1A),
                     letterSpacing = 0.5.sp
                 ),
                 maxLines = 1,
@@ -889,7 +891,7 @@ private fun NowPlayingInfo(
                     style = TextStyle(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp,
-                        color = Color(0xFF666666),
+                        color = Color(0xFF555558),
                         letterSpacing = 0.5.sp
                     ),
                     maxLines = 1,
