@@ -1,0 +1,12 @@
+name: Coverage
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    uses: maceip/.github/.github/workflows/code-coverage.yml@main
+    with:
+      java-version: '17'
+      app-module: 'app'
