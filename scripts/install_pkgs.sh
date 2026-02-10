@@ -1,12 +1,15 @@
 #!/bin/bash
 set -e
 
+# Use sudo when not running as root (remote Claude VMs run as root, local dev doesn't)
+SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+
 # 1. System Dependencies
 # Skip apt updates and installs if key packages already exist
 if ! command -v java >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1 || ! command -v gpg >/dev/null 2>&1; then
     echo "Installing missing system packages..."
-    apt-get update -qq
-    apt-get install -y -qq openjdk-17-jdk wget unzip lib32z1 curl gpg
+    $SUDO apt-get update -qq
+    $SUDO apt-get install -y -qq openjdk-17-jdk wget unzip lib32z1 curl gpg
 else
     echo "System dependencies already present, skipping apt install."
 fi
@@ -30,24 +33,24 @@ GRADLE_HOME="$GRADLE_INSTALL_BASE/gradle-$GRADLE_VERSION"
 if [ ! -d "$GRADLE_HOME" ]; then
     echo "Installing Gradle $GRADLE_VERSION (not found at $GRADLE_HOME)..."
     wget -q "$DIST_URL" -O /tmp/gradle.zip
-    mkdir -p "$GRADLE_INSTALL_BASE"
-    unzip -q /tmp/gradle.zip -d "$GRADLE_INSTALL_BASE"
+    $SUDO mkdir -p "$GRADLE_INSTALL_BASE"
+    $SUDO unzip -q /tmp/gradle.zip -d "$GRADLE_INSTALL_BASE"
     rm /tmp/gradle.zip
 else
     echo "Gradle $GRADLE_VERSION already installed at $GRADLE_HOME."
 fi
 
-# 4. GitHub CLI (Optimized for speed)
+# 4. GitHub CLI
 if ! command -v gh >/dev/null 2>&1; then
     echo "Installing GitHub CLI..."
-    mkdir -p -m 755 /etc/apt/keyrings
+    $SUDO mkdir -p -m 755 /etc/apt/keyrings
     if [ ! -f /etc/apt/keyrings/githubcli-archive-keyring.gpg ]; then
-        wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
+        wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | $SUDO tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
     fi
-    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-    apt-get update -qq
-    apt-get install -y -qq gh
+    $SUDO chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | $SUDO tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    $SUDO apt-get update -qq
+    $SUDO apt-get install -y -qq gh
 else
     echo "GitHub CLI already installed."
 fi
