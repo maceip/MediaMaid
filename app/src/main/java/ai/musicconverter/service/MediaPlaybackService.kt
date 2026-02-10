@@ -1,10 +1,12 @@
 package ai.musicconverter.service
 
+import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
@@ -15,6 +17,7 @@ import androidx.media3.session.SessionResult
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import ai.musicconverter.MainActivity
 import ai.musicconverter.R
 import ai.musicconverter.worker.ConversionWorker
 import com.google.common.util.concurrent.Futures
@@ -53,7 +56,16 @@ class MediaPlaybackService : MediaSessionService() {
             .setSessionCommand(COMMAND_CONVERT)
             .build()
 
+        // Session activity: tapping the notification opens the app
+        val sessionActivity = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         mediaSession = MediaSession.Builder(this, player)
+            .setSessionActivity(sessionActivity)
             .setCallback(PlaybackSessionCallback())
             .build()
 
@@ -99,6 +111,24 @@ class MediaPlaybackService : MediaSessionService() {
                 .build()
         }
 
+        // Allow external controllers (system UI, Auto, etc.) to set media items
+        override fun onAddMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: List<MediaItem>
+        ): ListenableFuture<List<MediaItem>> {
+            val resolved = mediaItems.map { item ->
+                if (item.localConfiguration == null && item.requestMetadata.mediaUri != null) {
+                    item.buildUpon()
+                        .setUri(item.requestMetadata.mediaUri)
+                        .build()
+                } else {
+                    item
+                }
+            }
+            return Futures.immediateFuture(resolved)
+        }
+
         override fun onCustomCommand(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -120,9 +150,9 @@ class MediaPlaybackService : MediaSessionService() {
         val uri = currentItem.localConfiguration?.uri ?: return
         val path = uri.path ?: return
 
-        // Skip if already in a target format
+        // Skip if already in AAC format (the target output)
         val ext = path.substringAfterLast('.', "").lowercase()
-        if (ext in listOf("mp3", "m4a", "aac")) return
+        if (ext in listOf("m4a", "aac")) return
 
         val workRequest = OneTimeWorkRequestBuilder<ConversionWorker>()
             .setInputData(
