@@ -89,6 +89,10 @@ dependencies {
     // Splash Screen
     implementation("androidx.core:core-splashscreen:1.0.1")
 
+    // Glance (App Widgets with Compose)
+    implementation("androidx.glance:glance:1.1.1")
+    implementation("androidx.glance:glance-appwidget:1.1.1")
+
     // Timber for logging
     implementation("com.jakewharton.timber:timber:5.0.1")
 

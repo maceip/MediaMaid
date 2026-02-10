@@ -6,7 +6,7 @@ set -e
 if ! command -v java >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1 || ! command -v gpg >/dev/null 2>&1; then
     echo "Installing missing system packages..."
     apt-get update -qq
-    apt-get install -y -qq openjdk-21-jdk wget unzip lib32z1 curl gpg
+    apt-get install -y -qq openjdk-17-jdk wget unzip lib32z1 curl gpg
 else
     echo "System dependencies already present, skipping apt install."
 fi
@@ -52,17 +52,4 @@ else
     echo "GitHub CLI already installed."
 fi
 
-# 5. Emscripten SDK (Pinned to 3.1.50)
-EMSDK_DIR="$HOME/emsdk"
-if [ ! -d "$EMSDK_DIR" ]; then
-    echo "Cloning and installing Emscripten 3.1.50..."
-    git clone -q https://github.com/emscripten-core/emsdk.git "$EMSDK_DIR"
-    cd "$EMSDK_DIR"
-    ./emsdk install 3.1.50 >/dev/null
-    ./emsdk activate 3.1.50 >/dev/null
-    cd - > /dev/null
-else
-    echo "Emscripten SDK found at $EMSDK_DIR."
-fi
-
-echo "Setup complete. Use 'gradle' command for builds and ensure 'emsdk_env.sh' is sourced for Wasm builds."
+echo "Setup complete."
