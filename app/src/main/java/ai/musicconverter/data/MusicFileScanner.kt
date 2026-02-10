@@ -1,14 +1,17 @@
 package ai.musicconverter.data
 
-import android.content.ContentUris
 import android.content.Context
 import android.os.Environment
 import android.provider.MediaStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
+import java.util.concurrent.ConcurrentLinkedQueue
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,6 +19,9 @@ import javax.inject.Singleton
 class MusicFileScanner @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    // Cache previous scan results keyed by path for fast deduplication
+    @Volatile
+    private var cachedPaths: Set<String> = emptySet()
 
     suspend fun scanForMusicFiles(includeConverted: Boolean = false): List<MusicFile> = withContext(Dispatchers.IO) {
         val musicFiles = mutableListOf<MusicFile>()
@@ -28,19 +34,23 @@ class MusicFileScanner @Inject constructor(
         }
 
         // If MediaStore didn't find files that need conversion, scan file system
+        // using parallel directory scanning for speed
         if (musicFiles.none { it.needsConversion }) {
             try {
-                musicFiles.addAll(scanFileSystem())
+                musicFiles.addAll(scanFileSystemParallel())
             } catch (e: Exception) {
                 Timber.e(e, "File system scan failed")
             }
         }
 
-        // Remove duplicates and sort by last modified (most recent first)
-        musicFiles
+        // Build deduplicated result and update cache
+        val result = musicFiles
             .distinctBy { it.path }
             .let { list -> if (includeConverted) list else list.filter { it.needsConversion } }
             .sortedByDescending { it.lastModified }
+
+        cachedPaths = result.mapTo(HashSet()) { it.path }
+        result
     }
 
     private fun scanWithMediaStore(): List<MusicFile> {
@@ -80,13 +90,27 @@ class MusicFileScanner @Inject constructor(
             val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val trackColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
 
-            // Count total tracks per album path for "X of Y" display
-            val totalFiles = mutableListOf<Triple<String, Long, Int?>>() // path, duration, track
+            // Pre-build the set of supported extensions for O(1) lookup
+            val supported = MusicFile.SUPPORTED_EXTENSIONS.toHashSet()
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idColumn)
                 val name = cursor.getString(nameColumn) ?: continue
                 val path = cursor.getString(dataColumn) ?: continue
+
+                // Quick extension check before expensive File.exists()
+                val dotIdx = path.lastIndexOf('.')
+                if (dotIdx < 0) continue
+                val ext = path.substring(dotIdx + 1).lowercase()
+                if (ext !in supported) continue
+
+                // Skip file existence check if path was in the previous cache
+                // (the file almost certainly still exists)
+                if (path !in cachedPaths) {
+                    val file = File(path)
+                    if (!file.exists()) continue
+                }
+
                 val size = cursor.getLong(sizeColumn)
                 val lastModified = cursor.getLong(dateColumn) * 1000
                 val duration = cursor.getLong(durationColumn)
@@ -96,16 +120,10 @@ class MusicFileScanner @Inject constructor(
                 val trackRaw = cursor.getInt(trackColumn)
                 val trackNumber = if (trackRaw > 0) trackRaw % 1000 else null
 
-                val file = File(path)
-                if (!file.exists()) continue
-
-                val ext = file.extension.lowercase()
-                if (ext !in MusicFile.SUPPORTED_EXTENSIONS) continue
-
                 musicFiles.add(
                     MusicFile(
                         id = id.toString(),
-                        name = file.nameWithoutExtension,
+                        name = File(path).nameWithoutExtension,
                         path = path,
                         extension = ext,
                         size = size,
@@ -123,29 +141,35 @@ class MusicFileScanner @Inject constructor(
         return musicFiles
     }
 
-    private fun scanFileSystem(): List<MusicFile> {
-        val musicFiles = mutableListOf<MusicFile>()
+    /**
+     * Scans the file system using parallel coroutines — one per top-level directory.
+     * Significantly faster on devices with many files across Music/Downloads/Podcasts.
+     */
+    private suspend fun scanFileSystemParallel(): List<MusicFile> = coroutineScope {
         val directories = listOf(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS),
             Environment.getExternalStorageDirectory()
-        )
+        ).filter { it.exists() && it.isDirectory }
 
-        for (dir in directories) {
-            if (dir.exists() && dir.isDirectory) {
-                scanDirectory(dir, musicFiles)
+        val results = ConcurrentLinkedQueue<MusicFile>()
+
+        directories.map { dir ->
+            async(Dispatchers.IO) {
+                scanDirectory(dir, results)
             }
-        }
+        }.awaitAll()
 
-        return musicFiles
+        results.toList()
     }
 
-    private fun scanDirectory(directory: File, results: MutableList<MusicFile>, depth: Int = 0) {
+    private fun scanDirectory(directory: File, results: ConcurrentLinkedQueue<MusicFile>, depth: Int = 0) {
         if (depth > 5) return // Limit recursion depth
 
         try {
-            directory.listFiles()?.forEach { file ->
+            val files = directory.listFiles() ?: return
+            for (file in files) {
                 if (file.isDirectory && !file.name.startsWith(".")) {
                     scanDirectory(file, results, depth + 1)
                 } else if (file.isFile) {

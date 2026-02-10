@@ -315,6 +315,7 @@ fun BrushedMetalBottomBar(
     notificationText: String? = null,
     playerState: PlayerState = PlayerState(),
     showMusicRain: Boolean = false,
+    isScanning: Boolean = false,
     onMusicRainComplete: () -> Unit = {},
     onConvertClick: () -> Unit,
     onPlayPauseClick: () -> Unit = {},
@@ -357,7 +358,7 @@ fun BrushedMetalBottomBar(
                 )
             }
 
-            // ── Progress / scrubber display (with music rain overlay) ──
+            // ── Progress / scrubber display (2x height, with music rain overlay) ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -374,12 +375,14 @@ fun BrushedMetalBottomBar(
                     onSeek = if (playerState.hasMedia) onSeekTo else null,
                     modifier = Modifier.fillMaxWidth()
                 )
+                // Looping rain while scanning (persistent bottom bar animation)
                 DotMatrixMusicRain(
-                    isPlaying = showMusicRain,
+                    isPlaying = isScanning || showMusicRain,
+                    loop = isScanning,
                     modifier = Modifier
                         .matchParentSize()
                         .clip(RoundedCornerShape(6.dp)),
-                    onComplete = onMusicRainComplete
+                    onComplete = { if (!isScanning) onMusicRainComplete() }
                 )
             }
 
@@ -443,7 +446,7 @@ fun BrushedMetalBottomBar(
             Canvas(Modifier.fillMaxWidth().height(8.dp)) { drawRidgeline() }
 
             // ── Darker zone below ridge ──
-            Spacer(Modifier.fillMaxWidth().height(16.dp))
+            Spacer(Modifier.fillMaxWidth().height(24.dp))
         }
     }
 }
@@ -533,7 +536,7 @@ private fun CalculatorProgressBar(
 
     Box(
         modifier = modifier
-            .height(32.dp)
+            .height(64.dp)
             .shadow(2.dp, RoundedCornerShape(6.dp), ambientColor = Color(0xFF666666), spotColor = Color(0xFF444444))
             .clip(RoundedCornerShape(6.dp))
             .background(ProgressBarBg)
