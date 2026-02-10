@@ -637,7 +637,7 @@ private fun TransportControlsRow(
 // ── Glossy 3D Bubble Button ────────────────────────────────────
 
 @Composable
-private fun GlossyButton(onClick: () -> Unit, size: Int, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+internal fun GlossyButton(onClick: () -> Unit, size: Int, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
@@ -774,7 +774,7 @@ private fun CenterButton(
 // ── Transport Icons ────────────────────────────────────────────
 
 @Composable
-private fun PreviousTrackIcon() {
+internal fun PreviousTrackIcon() {
     Canvas(Modifier.size(18.dp)) { val c = Color(0xFF3A3A3A)
         drawLine(c, Offset(3f, 4f), Offset(3f, size.height - 4f), 3f)
         drawPath(Path().apply { moveTo(size.width - 2f, 4f); lineTo(7f, size.height / 2f); lineTo(size.width - 2f, size.height - 4f); close() }, c)
@@ -782,7 +782,7 @@ private fun PreviousTrackIcon() {
 }
 
 @Composable
-private fun NextTrackIcon() {
+internal fun NextTrackIcon() {
     Canvas(Modifier.size(18.dp)) { val c = Color(0xFF3A3A3A)
         drawPath(Path().apply { moveTo(2f, 4f); lineTo(size.width - 7f, size.height / 2f); lineTo(2f, size.height - 4f); close() }, c)
         drawLine(c, Offset(size.width - 3f, 4f), Offset(size.width - 3f, size.height - 4f), 3f)

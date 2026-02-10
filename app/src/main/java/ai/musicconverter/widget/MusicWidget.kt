@@ -9,9 +9,7 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
-import androidx.glance.appwidget.background
 import androidx.glance.appwidget.cornerRadius
-import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
@@ -31,7 +29,7 @@ import androidx.glance.unit.ColorProvider
 
 class MusicWidget : GlanceAppWidget() {
 
-    override suspend fun provideContent(context: Context, id: GlanceId) {
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
             WidgetContent()
         }
@@ -70,7 +68,7 @@ class MusicWidget : GlanceAppWidget() {
                         )
                     )
                 }
-                
+
                 // Status dot
                 Box(
                     modifier = GlanceModifier
@@ -101,13 +99,13 @@ class MusicWidget : GlanceAppWidget() {
                     )
                 )
             }
-            
+
             Spacer(modifier = GlanceModifier.height(8.dp))
-            
+
             // Transport controls row
             Row(
                 modifier = GlanceModifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Widget buttons are usually simple Image or Text clickable in Glance
@@ -118,7 +116,7 @@ class MusicWidget : GlanceAppWidget() {
             }
         }
     }
-    
+
     @Composable
     private fun WidgetButton(label: String, isPrimary: Boolean = false) {
         Box(
