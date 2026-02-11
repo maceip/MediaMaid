@@ -41,8 +41,13 @@ class CustomMediaNotificationProvider(
         builder.setColor(0xFF808890.toInt())
         builder.setColorized(true)
 
-        // Render the retro player skin as the notification's large icon.
-        // This gives the media notification / lock screen the classic chrome look.
+        // Let the parent set up actions first
+        val result = super.addNotificationActions(mediaSession, mediaButtons, builder, actionFactory)
+
+        // Render the retro player skin as the notification's large icon AFTER super,
+        // so Media3's default artwork handling doesn't override our custom bitmap.
+        // The ViewModel intentionally omits artworkUri from MediaMetadata to prevent
+        // Media3's async bitmap loader from replacing this icon later.
         val player = mediaSession.player
         val metadata = player.mediaMetadata
         val title = metadata.title?.toString() ?: ""
@@ -56,6 +61,6 @@ class CustomMediaNotificationProvider(
         )
         builder.setLargeIcon(skinBitmap)
 
-        return super.addNotificationActions(mediaSession, mediaButtons, builder, actionFactory)
+        return result
     }
 }

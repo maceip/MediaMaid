@@ -100,6 +100,9 @@ dependencies {
     implementation("androidx.glance:glance-appwidget:1.1.1")
     implementation("androidx.glance:glance-material3:1.1.1")
 
+    // Test
+    testImplementation("junit:junit:4.13.2")
+
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

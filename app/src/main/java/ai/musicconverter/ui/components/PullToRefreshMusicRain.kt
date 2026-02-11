@@ -2,35 +2,22 @@ package ai.musicconverter.ui.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -39,8 +26,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import kotlin.math.abs
-import kotlin.math.sin
 import kotlin.random.Random
 
 // ── Dot-Matrix Music Note Pixel Patterns ────────────────────────
@@ -259,25 +244,16 @@ fun DotMatrixMusicRain(
     }
 }
 
-// ── Aluminum-style gradient for pull reveal ──────────────────────
-
-private val PullAluminumGradient = Brush.verticalGradient(
-    colorStops = arrayOf(
-        0.0f to Color(0xFFD4D4D6),   // light aluminum top
-        0.5f to Color(0xFFCBCBCE),   // mid
-        0.85f to Color(0xFFB8B8BC),  // darker below
-        1.0f to Color(0xFFA4A4A8),   // dark aluminum bottom edge
-    )
-)
-
 // ── Pull-to-Refresh Wrapper ─────────────────────────────────────
 
-private val PULL_THRESHOLD = 72.dp
+private val PULL_THRESHOLD = 120.dp
 
 /**
- * Wraps scrollable content (e.g. LazyColumn) to add pull-to-refresh
- * behavior. Reveals a brushed-aluminum surface while pulling, and
- * snaps back with a soft-close drawer animation when released.
+ * Wraps scrollable content (e.g. LazyColumn) to add pull-to-refresh.
+ * Content shifts down with the finger for natural gesture feedback.
+ * On release, snaps back with a smooth-close drawer spring (no bounce,
+ * fast deceleration). No visual indicators in the list — all scanning
+ * feedback is delegated to the calculator display in the bottom bar.
  */
 @Composable
 fun MusicPullToRefreshBox(
@@ -293,7 +269,7 @@ fun MusicPullToRefreshBox(
     val connection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                // Consume upward scroll to reduce pull indicator
+                // When pulled down and user scrolls back up, consume to retract
                 if (pullDistance > 0 && available.y < 0) {
                     val consumed = available.y.coerceAtLeast(-pullDistance)
                     pullDistance = (pullDistance + consumed).coerceAtLeast(0f)
@@ -307,8 +283,10 @@ fun MusicPullToRefreshBox(
                 available: Offset,
                 source: NestedScrollSource
             ): Offset {
-                // Capture overscroll when content is at top
-                if (available.y > 0) {
+                // Only accumulate from direct touch, not fling momentum.
+                // This prevents pull-to-refresh from triggering when the
+                // user scrolls up and the list hits the top with momentum.
+                if (available.y > 0 && source == NestedScrollSource.UserInput) {
                     pullDistance = (pullDistance + available.y * 0.5f)
                         .coerceAtMost(thresholdPx * 2f)
                     return Offset(0f, available.y)
@@ -318,26 +296,28 @@ fun MusicPullToRefreshBox(
 
             override suspend fun onPreFling(available: Velocity): Velocity {
                 val triggered = pullDistance >= thresholdPx
-                // Soft-close drawer: high stiffness spring with
-                // moderate damping for a firm, cushioned snap-back
+
+                // Smooth-close drawer spring: critically damped, high stiffness.
+                // No bounce, fast decisive snap-back with smooth deceleration.
                 val anim = Animatable(pullDistance)
                 anim.animateTo(
                     targetValue = 0f,
                     animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMediumLow
+                        dampingRatio = 1.0f,   // critically damped — no overshoot
+                        stiffness = 2500f      // fast snap, smooth deceleration
                     )
-                ) { pullDistance = value.coerceAtLeast(0f) }
+                ) {
+                    pullDistance = value.coerceAtLeast(0f)
+                }
+
                 if (triggered) onRefresh()
                 return Velocity.Zero
             }
         }
     }
 
-    val pullFraction = (pullDistance / thresholdPx).coerceIn(0f, 1.5f)
-
     Box(modifier = modifier.nestedScroll(connection)) {
-        // Content shifts down by pull distance
+        // Content shifts down by pull distance — natural gesture feedback
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -345,112 +325,6 @@ fun MusicPullToRefreshBox(
         ) {
             content()
         }
-
-        // Aluminum reveal behind the list
-        if (pullDistance > 0f) {
-            PullAluminumReveal(
-                pullFraction = pullFraction,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(with(density) { pullDistance.toDp() })
-                    .align(Alignment.TopCenter)
-            )
-        }
     }
 }
 
-// ── Pull Indicator (aluminum reveal strip) ──────────────────────
-
-/**
- * Brushed aluminum surface revealed when pulling down, matching
- * the bottom bar material. Shows a subtle refresh arrow that
- * intensifies as the user approaches the threshold.
- */
-@Composable
-private fun PullAluminumReveal(
-    pullFraction: Float,
-    modifier: Modifier = Modifier
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pullIndicator")
-    val shimmer by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 6.28f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmer"
-    )
-
-    val pastThreshold = pullFraction >= 1f
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
-            .background(PullAluminumGradient)
-            .drawBehind {
-                // Brushed-metal horizontal grain lines (matches bottom bar)
-                val lineSpacing = 1.5f
-                var y = 0f
-                while (y < size.height) {
-                    val alpha = ((y / size.height) * 0.03f + 0.01f).coerceIn(0f, 0.05f)
-                    drawLine(Color.Black.copy(alpha = alpha), Offset(0f, y), Offset(size.width, y), strokeWidth = 0.5f)
-                    y += lineSpacing
-                }
-                // Top edge highlight
-                drawLine(Color.White.copy(alpha = 0.7f), Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 1.5f)
-                // Bottom shadow edge (where content meets)
-                drawLine(Color.Black.copy(alpha = 0.15f), Offset(0f, size.height - 1f), Offset(size.width, size.height - 1f), strokeWidth = 1.5f)
-            }
-    ) {
-        // Refresh arrow indicator drawn on the aluminum surface
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-
-            // Circular refresh arrow (aluminum-embossed style)
-            val arrowAlpha = (pullFraction * 0.6f).coerceIn(0f, 0.7f)
-            val arrowColor = Color(0xFF555555).copy(alpha = arrowAlpha)
-            val arrowRadius = 10.dp.toPx() * pullFraction.coerceIn(0.3f, 1f)
-            val rotation = if (pastThreshold) shimmer * 57.3f else pullFraction * 270f
-
-            // Draw arc
-            drawArc(
-                color = arrowColor,
-                startAngle = rotation,
-                sweepAngle = 270f,
-                useCenter = false,
-                topLeft = Offset(cx - arrowRadius, cy - arrowRadius),
-                size = Size(arrowRadius * 2, arrowRadius * 2),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
-            )
-
-            // Arrowhead at end of arc
-            val headAngle = Math.toRadians((rotation + 270.0))
-            val headX = cx + arrowRadius * kotlin.math.cos(headAngle).toFloat()
-            val headY = cy + arrowRadius * kotlin.math.sin(headAngle).toFloat()
-            drawCircle(
-                color = arrowColor,
-                radius = 2.5.dp.toPx(),
-                center = Offset(headX, headY)
-            )
-
-            // Three bounce dots below arrow when past threshold
-            if (pastThreshold) {
-                val dotY = cy + arrowRadius + 8.dp.toPx()
-                val dotR = 1.5.dp.toPx()
-                val bounce = sin(shimmer.toDouble() * 2).toFloat() * 2.dp.toPx()
-                for (i in -1..1) {
-                    drawCircle(
-                        color = Color(0xFF555555).copy(alpha = 0.5f),
-                        radius = dotR,
-                        center = Offset(
-                            cx + i * 6.dp.toPx(),
-                            dotY + abs(i) * 2.dp.toPx() + bounce
-                        )
-                    )
-                }
-            }
-        }
-    }
-}

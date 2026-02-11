@@ -3,6 +3,12 @@ package ai.musicconverter.ui.components
 import android.graphics.RuntimeShader
 import android.os.Build
 import android.view.HapticFeedbackConstants
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,7 +37,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -193,39 +198,49 @@ private fun aquaGradient(style: AquaStyle, pressed: Boolean): Brush {
     if (pressed) {
         return when (style) {
             AquaStyle.GRAY -> Brush.verticalGradient(listOf(
-                Color(0xFFB0B0B4), Color(0xFFBCBCC0), Color(0xFFC6C6CA), Color(0xFFBABABE)
+                Color(0xFFB8B8BC), Color(0xFFC0C0C4), Color(0xFFCACACC), Color(0xFFC2C2C6)
             ))
             AquaStyle.BLUE -> Brush.verticalGradient(listOf(
-                Color(0xFF5080C0), Color(0xFF6090D0), Color(0xFF7098D4), Color(0xFF5888C8)
+                Color(0xFF4878B8), Color(0xFF5888C4), Color(0xFF6890CC), Color(0xFF5080C0)
             ))
         }
     }
     return when (style) {
-        AquaStyle.GRAY -> Brush.verticalGradient(listOf(
-            Color(0xFFF4F4F6),  // top highlight
-            Color(0xFFE8E8EC),  // upper body
-            Color(0xFFD0D0D6),  // mid
-            Color(0xFFBCBCC4),  // lower body
-            Color(0xFFD2D2D8),  // bottom highlight bounce
-        ))
-        AquaStyle.BLUE -> Brush.verticalGradient(listOf(
-            Color(0xFFB8D4F0),  // top highlight
-            Color(0xFF7BB4E8),  // upper body
-            Color(0xFF4A94DC),  // mid
-            Color(0xFF3878C8),  // lower body
-            Color(0xFF5A90D4),  // bottom highlight bounce
-        ))
+        // macOS 10.3 Panther gray button: clean silver with subtle bottom bounce
+        AquaStyle.GRAY -> Brush.verticalGradient(
+            colorStops = arrayOf(
+                0.00f to Color(0xFFFFFFFF),  // white top edge
+                0.03f to Color(0xFFF6F6F8),  // near-white
+                0.40f to Color(0xFFE0E0E4),  // light silver (under highlight)
+                0.50f to Color(0xFFD0D0D6),  // mid silver
+                0.85f to Color(0xFFBCBCC4),  // darker silver
+                1.00f to Color(0xFFCCCCD2),  // bottom bounce
+            )
+        )
+        // macOS 10.3 Panther blue button: saturated Aqua blue
+        AquaStyle.BLUE -> Brush.verticalGradient(
+            colorStops = arrayOf(
+                0.00f to Color(0xFFD0E8FF),  // bright top edge
+                0.03f to Color(0xFFA0CCF0),  // light blue
+                0.40f to Color(0xFF68A8E0),  // medium blue (under highlight)
+                0.55f to Color(0xFF3880CC),  // saturated blue
+                0.85f to Color(0xFF2060B0),  // deep blue
+                1.00f to Color(0xFF4080C8),  // bottom bounce
+            )
+        )
     }
 }
 
 private fun aquaBezel(style: AquaStyle): Brush {
     return when (style) {
+        // Thin neutral gray ring
         AquaStyle.GRAY -> Brush.linearGradient(
-            listOf(Color(0xFFDDDDE0), Color(0xFF999CA0), Color(0xFFBBBCC0), Color(0xFF999CA0), Color(0xFFDDDDE0)),
+            listOf(Color(0xFFCCCCD0), Color(0xFF909094), Color(0xFFB0B0B4), Color(0xFF909094), Color(0xFFCCCCD0)),
             start = Offset.Zero, end = Offset.Infinite
         )
+        // Dark blue ring matching macOS 10.3 default-button border
         AquaStyle.BLUE -> Brush.linearGradient(
-            listOf(Color(0xFF90B8E0), Color(0xFF4878B4), Color(0xFF6898CC), Color(0xFF4878B4), Color(0xFF90B8E0)),
+            listOf(Color(0xFF6898C8), Color(0xFF1850A0), Color(0xFF3870B8), Color(0xFF1850A0), Color(0xFF6898C8)),
             start = Offset.Zero, end = Offset.Infinite
         )
     }
@@ -249,6 +264,8 @@ fun GelButton(
     val isPressed by interactionSource.collectIsPressedAsState()
     val gelShape = RoundedCornerShape(50) // full pill
 
+    val borderWidth = if (style == AquaStyle.BLUE) 1.5.dp else 1.dp
+
     Box(
         modifier = modifier
             .shadow(
@@ -259,7 +276,7 @@ fun GelButton(
             )
             .clip(gelShape)
             .background(aquaGradient(style, isPressed))
-            .border(1.dp, aquaBezel(style), gelShape)
+            .border(borderWidth, aquaBezel(style), gelShape)
             .drawBehind { drawAquaOverlay(isPressed, style) }
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 8.dp),
@@ -267,7 +284,7 @@ fun GelButton(
     ) { content() }
 }
 
-private val ProgressBarBg = Color(0xFFFAF6E8)
+private val ProgressBarBg = Color(0xFFE4EEE0)  // LCD green tint
 private const val RIDGE_Y_FRACTION = 0.68f
 
 // ── Reusable aluminum background modifier (for top bar too) ────
@@ -321,7 +338,6 @@ fun BrushedMetalBottomBar(
     onPlayPauseClick: () -> Unit = {},
     onSearchClick: () -> Unit,
     onSeekTo: (Float) -> Unit = {},
-    onVariantChanged: (AluminumVariant) -> Unit = {},
     onPreviousClick: () -> Unit = {},
     onRewindClick: () -> Unit = {},
     onFastForwardClick: () -> Unit = {},
@@ -330,9 +346,7 @@ fun BrushedMetalBottomBar(
 ) {
     val view = LocalView.current
     val barShape = RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp)
-
-    var variantIndex by remember { mutableIntStateOf(1) }
-    val currentVariant = AluminumVariant.entries[variantIndex]
+    val currentVariant = AluminumVariant.NEUTRAL
 
     Box(
         modifier = modifier
@@ -365,6 +379,7 @@ fun BrushedMetalBottomBar(
                     .padding(horizontal = 10.dp)
                     .padding(top = if (playerState.hasMedia) 2.dp else 8.dp, bottom = 4.dp)
             ) {
+                val isIdle = !playerState.hasMedia && !isConverting && notificationText == null
                 CalculatorProgressBar(
                     progress = if (playerState.hasMedia) playerState.progress else conversionProgress,
                     timeText = if (playerState.hasMedia) playerState.displayPosition
@@ -372,6 +387,8 @@ fun BrushedMetalBottomBar(
                     endTimeText = if (playerState.hasMedia) playerState.displayDuration else null,
                     isNotification = notificationText != null && !playerState.hasMedia,
                     isPlayerMode = playerState.hasMedia,
+                    isConverting = isConverting,
+                    isIdle = isIdle,
                     onSeek = if (playerState.hasMedia) onSeekTo else null,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -394,15 +411,13 @@ fun BrushedMetalBottomBar(
                 isConverting = isConverting,
                 isPlaying = playerState.isPlaying,
                 hasMedia = playerState.hasMedia,
+                onConvertClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    onConvertClick()
+                },
                 onPreviousClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    if (playerState.hasMedia) {
-                        onPreviousClick()
-                    } else {
-                        variantIndex = 0
-                        onVariantChanged(AluminumVariant.COOL)
-                        onPreviousClick()
-                    }
+                    onPreviousClick()
                 },
                 onRewindClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -410,13 +425,7 @@ fun BrushedMetalBottomBar(
                 },
                 onCenterClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                    if (playerState.hasMedia) {
-                        onPlayPauseClick()
-                    } else {
-                        variantIndex = 1
-                        onVariantChanged(AluminumVariant.NEUTRAL)
-                        onConvertClick()
-                    }
+                    onPlayPauseClick()
                 },
                 onFastForwardClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -424,13 +433,7 @@ fun BrushedMetalBottomBar(
                 },
                 onNextClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    if (playerState.hasMedia) {
-                        onNextClick()
-                    } else {
-                        variantIndex = 2
-                        onVariantChanged(AluminumVariant.WARM)
-                        onNextClick()
-                    }
+                    onNextClick()
                 },
                 onSearchClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -518,6 +521,95 @@ private fun DrawScope.drawRidgeline() {
     drawPath(highlightPath, Color.White.copy(alpha = 0.5f), style = Stroke(width = 1.5f))
 }
 
+// ── macOS 10.3 Aqua Barber Pole (indeterminate progress) ────────
+
+/**
+ * Classic macOS Panther indeterminate progress bar: diagonal blue-and-white
+ * candy stripes scrolling continuously to the right inside a rounded track.
+ */
+@Composable
+private fun AquaBarberPole(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "barberPole")
+    val offset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "stripeScroll"
+    )
+
+    Canvas(
+        modifier = modifier
+            .clip(RoundedCornerShape(4.dp))
+    ) {
+        val w = size.width
+        val h = size.height
+
+        // White track background
+        drawRect(Color.White)
+
+        // Stripe geometry: each stripe is a parallelogram tilted ~55 degrees
+        val stripeW = h * 0.55f          // visible width of one stripe
+        val diag = h * 0.85f             // horizontal shift from tilt
+        val period = stripeW * 2f        // one blue + one white stripe
+        val animShift = offset * period  // scroll one full period
+
+        val stripeColor = Color(0xFF6BAAE8)         // macOS Aqua blue
+        val stripeHighlight = Color(0xFF90C4F0)     // lighter blue for top of stripe
+
+        // Draw blue diagonal stripes with subtle top-highlight
+        var x = -diag - period + animShift
+        while (x < w + diag + period) {
+            // Blue stripe body
+            val path = Path().apply {
+                moveTo(x, h)
+                lineTo(x + stripeW, h)
+                lineTo(x + stripeW + diag, 0f)
+                lineTo(x + diag, 0f)
+                close()
+            }
+            drawPath(path, stripeColor)
+
+            // Top highlight on each stripe (lighter blue band)
+            val hlPath = Path().apply {
+                moveTo(x + diag, 0f)
+                lineTo(x + stripeW + diag, 0f)
+                lineTo(x + stripeW + diag * 0.7f, h * 0.3f)
+                lineTo(x + diag * 0.7f, h * 0.3f)
+                close()
+            }
+            drawPath(hlPath, stripeHighlight.copy(alpha = 0.5f))
+
+            x += period
+        }
+
+        // Inner top shadow for depth (inset shadow at top edge)
+        drawLine(
+            Color.Black.copy(alpha = 0.15f),
+            Offset(0f, 0.5f),
+            Offset(w, 0.5f),
+            strokeWidth = 1.5f
+        )
+        // Inner bottom highlight
+        drawLine(
+            Color.White.copy(alpha = 0.6f),
+            Offset(0f, h - 0.5f),
+            Offset(w, h - 0.5f),
+            strokeWidth = 1f
+        )
+
+        // Border
+        drawRoundRect(
+            color = Color(0xFF8899AA),
+            size = size,
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()),
+            style = Stroke(width = 1.dp.toPx())
+        )
+    }
+}
+
 // ── Calculator-style Progress Bar / Notification Display ───────
 
 @Composable
@@ -527,6 +619,8 @@ private fun CalculatorProgressBar(
     endTimeText: String? = null,
     isNotification: Boolean = false,
     isPlayerMode: Boolean = false,
+    isConverting: Boolean = false,
+    isIdle: Boolean = false,
     onSeek: ((Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -546,65 +640,137 @@ private fun CalculatorProgressBar(
                 drawLine(Color.White.copy(alpha = 0.3f), Offset(4f, size.height - 2f), Offset(size.width - 4f, size.height - 2f), strokeWidth = 0.5f)
             }
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = timeText,
-                style = TextStyle(
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    color = if (isNotification) Color(0xFF8B4513) else Color(0xFF222222),
-                    letterSpacing = if (isPlayerMode) 1.sp else 2.sp
-                ),
-                maxLines = 1
-            )
-
-            if (!isNotification) {
-                if (!isPlayerMode) {
-                    Canvas(modifier = Modifier.size(7.dp)) {
-                        val path = Path().apply {
-                            moveTo(size.width / 2, 0f); lineTo(size.width, size.height); lineTo(0f, size.height); close()
-                        }
-                        drawPath(path, Color(0xFF222222))
+        when {
+            isIdle -> {
+                // LCD idle display: styled app name + music notes
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Styled ASCII art name on the left
+                    Column {
+                        Text(
+                            text = "MEDIA",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = Color(0xFF8BA888),
+                                letterSpacing = 4.sp
+                            )
+                        )
+                        Text(
+                            text = "  MAID",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = Color(0xFF8BA888).copy(alpha = 0.6f),
+                                letterSpacing = 4.sp
+                            )
+                        )
+                    }
+                    // Multi-row music notes on the right
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = "\u266A \u266B \u266A",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 16.sp,
+                                color = Color(0xFF8BA888),
+                                letterSpacing = 2.sp
+                            )
+                        )
+                        Text(
+                            text = "\u266B \u266A \u266B",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 16.sp,
+                                color = Color(0xFF8BA888).copy(alpha = 0.5f),
+                                letterSpacing = 2.sp
+                            )
+                        )
                     }
                 }
-
-                Slider(
-                    value = sliderPosition,
-                    onValueChange = {
-                        isSeeking = true
-                        sliderPosition = it
-                    },
-                    onValueChangeFinished = {
-                        isSeeking = false
-                        onSeek?.invoke(sliderPosition)
-                    },
-                    modifier = Modifier.weight(1f).height(18.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF555555),
-                        activeTrackColor = Color(0xFF777777),
-                        inactiveTrackColor = Color(0xFFCCCCCC)
-                    )
-                )
-
-                if (endTimeText != null) {
+            }
+            isConverting && !isPlayerMode && !isNotification -> {
+                // macOS 10.3 barber pole conversion animation
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.Center
+                ) {
                     Text(
-                        text = endTimeText,
+                        text = timeText,
                         style = TextStyle(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            color = Color(0xFF222222),
+                            fontSize = 11.sp,
+                            color = Color(0xFF333333),
                             letterSpacing = 1.sp
                         ),
                         maxLines = 1
                     )
+                    Spacer(Modifier.height(4.dp))
+                    AquaBarberPole(
+                        modifier = Modifier.fillMaxWidth().height(18.dp)
+                    )
                 }
-            } else {
-                Spacer(Modifier.weight(1f))
+            }
+            else -> {
+                // Normal content: player seek bar or notification text
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = timeText,
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = if (isNotification) Color(0xFF8B4513) else Color(0xFF222222),
+                            letterSpacing = if (isPlayerMode) 1.sp else 2.sp
+                        ),
+                        maxLines = 1
+                    )
+
+                    if (!isNotification) {
+                        Slider(
+                            value = sliderPosition,
+                            onValueChange = {
+                                isSeeking = true
+                                sliderPosition = it
+                            },
+                            onValueChangeFinished = {
+                                isSeeking = false
+                                onSeek?.invoke(sliderPosition)
+                            },
+                            modifier = Modifier.weight(1f).height(18.dp),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF555555),
+                                activeTrackColor = Color(0xFF777777),
+                                inactiveTrackColor = Color(0xFFCCCCCC)
+                            )
+                        )
+
+                        if (endTimeText != null) {
+                            Text(
+                                text = endTimeText,
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF222222),
+                                    letterSpacing = 1.sp
+                                ),
+                                maxLines = 1
+                            )
+                        }
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
             }
         }
     }
@@ -617,6 +783,7 @@ private fun TransportControlsRow(
     isConverting: Boolean,
     isPlaying: Boolean = false,
     hasMedia: Boolean = false,
+    onConvertClick: () -> Unit,
     onPreviousClick: () -> Unit,
     onRewindClick: () -> Unit,
     onCenterClick: () -> Unit,
@@ -625,20 +792,16 @@ private fun TransportControlsRow(
     onSearchClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isMuted by remember { mutableStateOf(false) }
-    val view = LocalView.current
-
     Row(modifier = modifier, horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-        GlossyButton(onClick = {
-            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-            isMuted = !isMuted
-        }, size = 36) { VolumeIcon(muted = isMuted) }
+        GlossyButton(onClick = onConvertClick, size = 36) {
+            Text("♻", fontSize = 18.sp, color = Color(0xFF2A2A2A))
+        }
         Spacer(Modifier.weight(1f))
         GlossyButton(onClick = onPreviousClick, size = 44) { PreviousTrackIcon() }
         Spacer(Modifier.width(8.dp))
         GlossyButton(onClick = onRewindClick, size = 44) { RewindIcon() }
         Spacer(Modifier.width(10.dp))
-        CenterButton(isConverting = isConverting, isPlaying = isPlaying, hasMedia = hasMedia, onClick = onCenterClick)
+        CenterButton(isPlaying = isPlaying, hasMedia = hasMedia, onClick = onCenterClick)
         Spacer(Modifier.width(10.dp))
         GlossyButton(onClick = onFastForwardClick, size = 44) { FastForwardIcon() }
         Spacer(Modifier.width(8.dp))
@@ -695,32 +858,56 @@ private fun DrawScope.drawGlossyOverlay(isPressed: Boolean) {
 
 private fun DrawScope.drawAquaOverlay(isPressed: Boolean, style: AquaStyle) {
     val w = size.width; val h = size.height
+    val inset = h / 2f  // pill radius inset for highlight edges
 
-    // Top specular highlight — the classic Aqua glossy white band across upper third
+    // Top specular highlight — the iconic macOS 10.3 Aqua glossy band
+    // Covers top ~42% of the button with a sharp-edged white/translucent gradient
     if (!isPressed) {
         val highlightPath = Path().apply {
-            moveTo(h / 2f, 2f)
-            lineTo(w - h / 2f, 2f)
-            lineTo(w - h / 2f, h * 0.42f)
-            quadraticTo(w / 2f, h * 0.32f, h / 2f, h * 0.42f)
+            moveTo(inset, 2f)
+            lineTo(w - inset, 2f)
+            lineTo(w - inset, h * 0.44f)
+            quadraticTo(w / 2f, h * 0.36f, inset, h * 0.44f)
+            close()
+        }
+        val highlightAlpha = if (style == AquaStyle.BLUE) 0.75f else 0.90f
+        drawPath(
+            highlightPath,
+            Brush.verticalGradient(
+                colorStops = arrayOf(
+                    0.0f to Color.White.copy(alpha = highlightAlpha),
+                    0.5f to Color.White.copy(alpha = highlightAlpha * 0.6f),
+                    0.85f to Color.White.copy(alpha = 0.08f),
+                    1.0f to Color.White.copy(alpha = 0.0f),
+                ),
+                startY = 1f, endY = h * 0.48f
+            )
+        )
+    } else {
+        // Subdued highlight when pressed
+        val highlightPath = Path().apply {
+            moveTo(inset, 2f)
+            lineTo(w - inset, 2f)
+            lineTo(w - inset, h * 0.35f)
+            quadraticTo(w / 2f, h * 0.28f, inset, h * 0.35f)
             close()
         }
         drawPath(
             highlightPath,
             Brush.verticalGradient(
-                listOf(Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0.15f)),
-                startY = 0f, endY = h * 0.45f
+                listOf(Color.White.copy(alpha = 0.35f), Color.White.copy(alpha = 0.0f)),
+                startY = 1f, endY = h * 0.38f
             )
         )
     }
 
-    // Bottom inner glow — subtle light bounce at bottom edge
-    val bounceAlpha = if (style == AquaStyle.BLUE) 0.2f else 0.3f
+    // Bottom inner glow — subtle white bounce at bottom edge (capsule inset)
+    val bounceAlpha = if (style == AquaStyle.BLUE) 0.25f else 0.35f
     drawLine(
-        Color.White.copy(alpha = if (isPressed) bounceAlpha * 0.5f else bounceAlpha),
-        Offset(h / 2f, h - 2.5f),
-        Offset(w - h / 2f, h - 2.5f),
-        strokeWidth = 1f
+        Color.White.copy(alpha = if (isPressed) bounceAlpha * 0.4f else bounceAlpha),
+        Offset(inset, h - 2.5f),
+        Offset(w - inset, h - 2.5f),
+        strokeWidth = 1.5f
     )
 }
 
@@ -728,7 +915,6 @@ private fun DrawScope.drawAquaOverlay(isPressed: Boolean, style: AquaStyle) {
 
 @Composable
 private fun CenterButton(
-    isConverting: Boolean,
     isPlaying: Boolean,
     hasMedia: Boolean,
     onClick: () -> Unit,
@@ -757,30 +943,22 @@ private fun CenterButton(
             Canvas(modifier = Modifier.size(28.dp)) {
                 val cx = size.width / 2f; val cy = size.height / 2f
                 val c = Color(0xFF2A2A2A)
-                when {
-                    isConverting -> {
-                        // Stop square
-                        val s = size.minDimension * 0.32f
-                        drawRect(c, Offset(cx - s, cy - s), Size(s * 2, s * 2))
+                if (hasMedia && isPlaying) {
+                    // Pause bars
+                    val barW = size.minDimension * 0.12f
+                    val barH = size.minDimension * 0.6f
+                    val gap = size.minDimension * 0.1f
+                    drawRect(c, Offset(cx - gap - barW, cy - barH / 2), Size(barW, barH))
+                    drawRect(c, Offset(cx + gap, cy - barH / 2), Size(barW, barH))
+                } else {
+                    // Play triangle
+                    val path = Path().apply {
+                        moveTo(cx - size.width * 0.22f, cy - size.height * 0.38f)
+                        lineTo(cx + size.width * 0.35f, cy)
+                        lineTo(cx - size.width * 0.22f, cy + size.height * 0.38f)
+                        close()
                     }
-                    hasMedia && isPlaying -> {
-                        // Pause bars
-                        val barW = size.minDimension * 0.12f
-                        val barH = size.minDimension * 0.6f
-                        val gap = size.minDimension * 0.1f
-                        drawRect(c, Offset(cx - gap - barW, cy - barH / 2), Size(barW, barH))
-                        drawRect(c, Offset(cx + gap, cy - barH / 2), Size(barW, barH))
-                    }
-                    else -> {
-                        // Play triangle
-                        val path = Path().apply {
-                            moveTo(cx - size.width * 0.22f, cy - size.height * 0.38f)
-                            lineTo(cx + size.width * 0.35f, cy)
-                            lineTo(cx - size.width * 0.22f, cy + size.height * 0.38f)
-                            close()
-                        }
-                        drawPath(path, c)
-                    }
+                    drawPath(path, c)
                 }
             }
         }
@@ -818,27 +996,6 @@ private fun FastForwardIcon() {
     Canvas(Modifier.size(20.dp)) { val c = Color(0xFF3A3A3A)
         drawPath(Path().apply { moveTo(2f, 4f); lineTo(size.width / 2f, size.height / 2f); lineTo(2f, size.height - 4f); close() }, c)
         drawPath(Path().apply { moveTo(size.width / 2f, 4f); lineTo(size.width - 2f, size.height / 2f); lineTo(size.width / 2f, size.height - 4f); close() }, c)
-    }
-}
-
-@Composable
-private fun VolumeIcon(muted: Boolean) {
-    Canvas(Modifier.size(16.dp)) {
-        val c = Color(0xFF3A3A3A)
-        drawRect(c, Offset(1f, size.height * 0.3f), Size(4f, size.height * 0.4f))
-        drawPath(Path().apply {
-            moveTo(5f, size.height * 0.3f)
-            lineTo(10f, 2f)
-            lineTo(10f, size.height - 2f)
-            lineTo(5f, size.height * 0.7f)
-            close()
-        }, c)
-        if (muted) {
-            drawLine(Color(0xFFCC3333), Offset(11f, size.height * 0.3f), Offset(size.width - 1f, size.height * 0.7f), 2f)
-            drawLine(Color(0xFFCC3333), Offset(11f, size.height * 0.7f), Offset(size.width - 1f, size.height * 0.3f), 2f)
-        } else {
-            drawArc(c, -40f, 80f, false, Offset(11f, size.height * 0.2f), Size(6f, size.height * 0.6f), style = Stroke(1.5f))
-        }
     }
 }
 

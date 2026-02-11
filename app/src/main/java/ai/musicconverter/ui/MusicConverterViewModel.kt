@@ -2,7 +2,6 @@ package ai.musicconverter.ui
 
 import android.app.Application
 import android.content.ComponentName
-import android.content.ContentUris
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -172,12 +171,6 @@ class MusicConverterViewModel @Inject constructor(
         val controller = mediaController ?: return
 
         val mediaItems = playlist.map { file ->
-            val artworkUri = file.albumId?.let {
-                ContentUris.withAppendedId(
-                    Uri.parse("content://media/external/audio/albumart"),
-                    it
-                )
-            }
             MediaItem.Builder()
                 .setMediaId(file.id)
                 .setUri(Uri.fromFile(File(file.path)))
@@ -186,7 +179,6 @@ class MusicConverterViewModel @Inject constructor(
                         .setTitle(file.name)
                         .setArtist(file.artist)
                         .setAlbumTitle(file.album)
-                        .apply { if (artworkUri != null) setArtworkUri(artworkUri) }
                         .build()
                 )
                 .build()
@@ -319,6 +311,55 @@ class MusicConverterViewModel @Inject constructor(
             }
 
             Timber.d("Batch conversion enqueued $enqueued files")
+            scheduleUiUpdate()
+        }
+    }
+
+    fun convertFiles(fileIds: Set<String>) {
+        val filesToConvert = _uiState.value.musicFiles
+            .filter { it.id in fileIds && it.needsConversion && !convertingFiles.contains(it.path) }
+
+        if (filesToConvert.isEmpty()) {
+            Timber.d("No selected files to convert")
+            return
+        }
+
+        Timber.d("Starting conversion of ${filesToConvert.size} selected files")
+
+        _uiState.update {
+            it.copy(
+                isBatchConverting = true,
+                totalToConvert = filesToConvert.size,
+                convertedCount = 0,
+                status = ConversionStatus.CONVERTING
+            )
+        }
+
+        batchConversionJob = viewModelScope.launch {
+            var enqueued = 0
+
+            for (file in filesToConvert) {
+                if (!isActive) {
+                    Timber.d("Batch conversion cancelled")
+                    break
+                }
+
+                while (isActive && getActiveConversionCount() >= MAX_CONCURRENT_CONVERSIONS) {
+                    delay(200)
+                }
+
+                if (!isActive) break
+
+                enqueueConversion(file)
+                enqueued++
+
+                if (enqueued % BATCH_SIZE == 0) {
+                    scheduleUiUpdate()
+                    delay(ENQUEUE_DELAY_MS)
+                }
+            }
+
+            Timber.d("Batch conversion enqueued $enqueued selected files")
             scheduleUiUpdate()
         }
     }

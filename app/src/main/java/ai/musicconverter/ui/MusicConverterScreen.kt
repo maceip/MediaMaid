@@ -9,7 +9,6 @@ import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,10 +23,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -66,6 +65,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,7 +78,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
@@ -90,7 +89,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import ai.musicconverter.data.ConversionStatus
 import ai.musicconverter.data.MusicFile
-import ai.musicconverter.ui.components.AluminumVariant
 import ai.musicconverter.ui.components.AquaStyle
 import ai.musicconverter.ui.components.BrushedMetalBottomBar
 import ai.musicconverter.ui.components.GelButton
@@ -129,7 +127,11 @@ fun MusicConverterScreen(
     val settingsSheetState = rememberModalBottomSheetState()
 
     val isConverting = uiState.isBatchConverting || uiState.musicFiles.any { it.isConverting }
-    val pendingCount = uiState.musicFiles.count { it.needsConversion && !it.isConverting }
+    // Hoisted checkbox state so convert dialog can read it
+    val checkedFiles = remember { mutableStateMapOf<String, Boolean>() }
+    val pendingCount = uiState.musicFiles.count {
+        it.needsConversion && !it.isConverting && (checkedFiles[it.id] ?: true)
+    }
     val displayFiles = uiState.filteredFiles
 
     val searchFocusRequester = remember { FocusRequester() }
@@ -145,6 +147,9 @@ fun MusicConverterScreen(
         uiState.convertedCount % 60
     )
 
+    // Tab selection (hoisted so top bar can control it)
+    var selectedTab by remember { mutableIntStateOf(0) }
+
     // Pull-to-refresh state
     var showMusicRain by remember { mutableStateOf(false) }
     var isPullRefreshing by remember { mutableStateOf(false) }
@@ -158,6 +163,15 @@ fun MusicConverterScreen(
 
     // Notification text for calculator display (replaces toasts/snackbars)
     var notificationText by remember { mutableStateOf<String?>(null) }
+    var notificationCounter by remember { mutableIntStateOf(0) }
+
+    // Auto-clear manually-triggered notifications (e.g. "no files need conversion")
+    LaunchedEffect(notificationCounter) {
+        if (notificationCounter > 0) {
+            delay(3000)
+            notificationText = null
+        }
+    }
 
     // Show errors in calculator display instead of snackbar
     LaunchedEffect(uiState.error) {
@@ -176,14 +190,6 @@ fun MusicConverterScreen(
             notificationText = "Conversion complete!"
             view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
             delay(3000)
-            notificationText = null
-        }
-    }
-
-    // Auto-dismiss aluminum variant notification
-    LaunchedEffect(notificationText) {
-        if (notificationText?.startsWith("Aluminum:") == true) {
-            delay(2000)
             notificationText = null
         }
     }
@@ -225,6 +231,7 @@ fun MusicConverterScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(aluminumBackgroundModifier())
+                    .statusBarsPadding()
                     .drawBehind {
                         // Bottom edge shadow for metal frame depth
                         drawLine(Color.Black.copy(alpha = 0.15f), Offset(0f, size.height - 1f), Offset(size.width, size.height - 1f), strokeWidth = 1.5f)
@@ -238,8 +245,11 @@ fun MusicConverterScreen(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Graphite traffic light buttons
-                    GraphiteTrafficLights()
+                    // Segmented view-mode buttons (Finder-style)
+                    SegmentedViewButtons(
+                        selectedTab = selectedTab,
+                        onTabSelected = { selectedTab = it }
+                    )
                     Spacer(Modifier.width(10.dp))
 
                     // Search field
@@ -296,15 +306,22 @@ fun MusicConverterScreen(
                 isScanning = isPullRefreshing && uiState.status == ConversionStatus.SCANNING,
                 onMusicRainComplete = { showMusicRain = false },
                 onConvertClick = {
-                    if (isConverting) viewModel.cancelAllConversions()
-                    else showConvertConfirmDialog = true
+                    if (isConverting) {
+                        viewModel.cancelAllConversions()
+                    } else if (pendingCount > 0) {
+                        showConvertConfirmDialog = true
+                    } else {
+                        view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+                        notificationText = if (checkedFiles.any { it.value })
+                            "Selected files don't need conversion"
+                        else
+                            "No files selected"
+                        notificationCounter++
+                    }
                 },
                 onPlayPauseClick = { viewModel.togglePlayPause() },
                 onSearchClick = { searchFocusRequester.requestFocus() },
                 onSeekTo = { fraction -> viewModel.seekTo(fraction) },
-                onVariantChanged = { variant ->
-                    notificationText = "Aluminum: ${variant.name}"
-                },
                 onPreviousClick = { viewModel.skipPrevious() },
                 onRewindClick = { viewModel.seekBack() },
                 onFastForwardClick = { viewModel.seekForward() },
@@ -360,11 +377,14 @@ fun MusicConverterScreen(
                     CondensedMediaList(
                         files = displayFiles,
                         totalFiles = uiState.musicFiles.size,
+                        checkedFiles = checkedFiles,
+                        selectedTab = selectedTab,
                         onPlayFile = { file ->
                             viewModel.playFile(file, displayFiles)
                         },
                         onRefresh = {
                             isPullRefreshing = true
+                            showMusicRain = true
                             viewModel.scanForFiles()
                         }
                     )
@@ -393,7 +413,8 @@ fun MusicConverterScreen(
             confirmButton = {
                 GelButton(onClick = {
                     showConvertConfirmDialog = false
-                    viewModel.convertAllFiles()
+                    val selectedIds = checkedFiles.filter { it.value }.keys
+                    viewModel.convertFiles(selectedIds)
                 }, style = AquaStyle.BLUE) { Text("Convert", fontWeight = FontWeight.Bold, color = Color.White) }
             },
             dismissButton = {
@@ -439,105 +460,63 @@ fun MusicConverterScreen(
 }
 
 // ──────────────────────────────────────────────────────────────
-// Graphite Traffic Light Buttons (decorative window controls)
+// Segmented View Buttons (macOS Finder-style view mode selector)
 // ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun GraphiteTrafficLights() {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Close, minimize, maximize — all graphite gray
-        TrafficDot(Color(0xFF6E6E6E), Color(0xFF555555))
-        TrafficDot(Color(0xFF6E6E6E), Color(0xFF555555))
-        TrafficDot(Color(0xFF6E6E6E), Color(0xFF555555))
-    }
-}
-
-@Composable
-private fun TrafficDot(color: Color, borderColor: Color) {
-    Canvas(modifier = Modifier.size(12.dp)) {
-        // Outer shadow
-        drawCircle(Color.Black.copy(alpha = 0.2f), radius = size.minDimension / 2f, center = Offset(size.width / 2f, size.height / 2f + 0.5f))
-        // Body gradient
-        drawCircle(
-            Brush.verticalGradient(listOf(color.copy(alpha = 0.8f), color, color.copy(alpha = 0.7f))),
-            radius = size.minDimension / 2f - 0.5f
-        )
-        // Border ring
-        drawCircle(borderColor, radius = size.minDimension / 2f - 0.5f, style = Stroke(1f))
-        // Top specular highlight
-        drawCircle(
-            Color.White.copy(alpha = 0.35f),
-            radius = size.minDimension / 4f,
-            center = Offset(size.width / 2f, size.height * 0.35f)
-        )
-    }
-}
-
-// ──────────────────────────────────────────────────────────────
-// Tabbed List View
-// ──────────────────────────────────────────────────────────────
-
-private data class TabItem(val label: String, val icon: @Composable () -> Unit)
-
-@Composable
-private fun MetalTabBar(selectedTab: Int, onTabSelected: (Int) -> Unit) {
-    val tabs = listOf(
-        TabItem("All") { Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF444444)) },
-        TabItem("Convert") { Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF444444)) },
-        TabItem("Files") { Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF444444)) },
-        TabItem("Favorites") { Icon(Icons.Default.Favorite, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF444444)) },
+private fun SegmentedViewButtons(selectedTab: Int, onTabSelected: (Int) -> Unit) {
+    val icons = listOf(
+        Icons.Default.MusicNote to "All",
+        Icons.Default.SwapHoriz to "Convert",
+        Icons.Default.FolderOpen to "Files",
+        Icons.Default.Favorite to "Favorites",
     )
 
     Row(
         modifier = Modifier
-            .fillMaxWidth()
+            .height(28.dp)
+            .shadow(1.dp, RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(4.dp))
             .background(
-                Brush.verticalGradient(listOf(Color(0xFFD8D8DC), Color(0xFFC8C8CC), Color(0xFFBEBEC2)))
+                Brush.verticalGradient(
+                    listOf(Color(0xFFBCBCC0), Color(0xFFAAAAAC))
+                )
             )
-            .drawBehind {
-                drawLine(Color.White.copy(alpha = 0.5f), Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 0.5f)
-                drawLine(Color.Black.copy(alpha = 0.12f), Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), strokeWidth = 0.5f)
-            }
-            .padding(horizontal = 8.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.Center,
+            .border(0.5.dp, Color(0xFF8A8A8E), RoundedCornerShape(4.dp)),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        tabs.forEachIndexed { index, tab ->
+        icons.forEachIndexed { index, (icon, label) ->
             val isSelected = index == selectedTab
             Box(
                 modifier = Modifier
-                    .padding(horizontal = 2.dp)
+                    .size(32.dp, 28.dp)
                     .then(
                         if (isSelected) {
-                            Modifier
-                                .shadow(2.dp, RoundedCornerShape(4.dp))
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(
-                                    Brush.verticalGradient(listOf(Color(0xFFEEEEF0), Color(0xFFDDDDE0)))
+                            Modifier.background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFFE8E8EA), Color(0xFFD4D4D8))
                                 )
-                                .border(0.5.dp, Color(0xFFAAAAB0), RoundedCornerShape(4.dp))
+                            )
                         } else {
-                            Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .clickable { onTabSelected(index) }
+                            Modifier.clickable { onTabSelected(index) }
                         }
-                    )
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    tab.icon()
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        tab.label,
-                        fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isSelected) Color(0xFF333333) else Color(0xFF666666)
-                    )
-                }
+                Icon(
+                    icon,
+                    contentDescription = label,
+                    modifier = Modifier.size(15.dp),
+                    tint = if (isSelected) Color(0xFF333333) else Color(0xFF666666)
+                )
+            }
+            // Thin vertical divider between buttons (not after last)
+            if (index < icons.lastIndex) {
+                Box(
+                    Modifier
+                        .size(0.5.dp, 18.dp)
+                        .background(Color(0xFF8A8A8E).copy(alpha = 0.6f))
+                )
             }
         }
     }
@@ -551,12 +530,11 @@ private fun MetalTabBar(selectedTab: Int, onTabSelected: (Int) -> Unit) {
 private fun CondensedMediaList(
     files: List<MusicFile>,
     totalFiles: Int,
+    checkedFiles: SnapshotStateMap<String, Boolean>,
+    selectedTab: Int,
     onPlayFile: (MusicFile) -> Unit = {},
     onRefresh: () -> Unit = {}
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val checkedFiles = remember { mutableStateMapOf<String, Boolean>() }
-
     val filteredFiles = when (selectedTab) {
         1 -> files.filter { it.needsConversion }
         2 -> files
@@ -572,8 +550,14 @@ private fun CondensedMediaList(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        MetalTabBar(selectedTab = selectedTab, onTabSelected = { selectedTab = it })
-        MediaTableHeader()
+        val allChecked = filteredFiles.isNotEmpty() && filteredFiles.all { checkedFiles[it.id] ?: true }
+        MediaTableHeader(
+            allChecked = allChecked,
+            onToggleAll = {
+                val newValue = !allChecked
+                filteredFiles.forEach { checkedFiles[it.id] = newValue }
+            }
+        )
 
         MusicPullToRefreshBox(
             onRefresh = onRefresh,
@@ -600,7 +584,7 @@ private fun CondensedMediaList(
 }
 
 @Composable
-private fun MediaTableHeader() {
+private fun MediaTableHeader(allChecked: Boolean, onToggleAll: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -615,9 +599,19 @@ private fun MediaTableHeader() {
                 // Bottom border
                 drawLine(TableHeaderBorder, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth = 1f)
             }
-            .padding(start = 40.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+            .padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Checkbox(
+            checked = allChecked,
+            onCheckedChange = { onToggleAll() },
+            modifier = Modifier.size(32.dp),
+            colors = CheckboxDefaults.colors(
+                checkedColor = CheckboxBlue,
+                uncheckedColor = Color(0xFFAAAAAA),
+                checkmarkColor = Color.White
+            )
+        )
         Text(
             "Song Name",
             style = MaterialTheme.typography.labelMedium,
@@ -766,7 +760,7 @@ private fun SettingsSheetContent(
         Text(
             "When auto-convert is enabled, the app monitors for new audio files and converts them to AAC format in the background.",
             style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFF777777)
+            color = Color(0xFF555555)
         )
     }
 }
@@ -786,7 +780,7 @@ private fun SettingsToggleCard(title: String, description: String, checked: Bool
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Text(description, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
+                Text(description, style = MaterialTheme.typography.bodySmall, color = Color(0xFF444444))
             }
             Spacer(modifier = Modifier.width(12.dp))
             Switch(checked = checked, onCheckedChange = { onToggle() })
@@ -809,7 +803,7 @@ private fun PermissionRequestContent(onRequestPermission: () -> Unit) {
         Spacer(modifier = Modifier.height(16.dp))
         Text("Storage Permission Required", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFF333333))
         Spacer(modifier = Modifier.height(8.dp))
-        Text("This app needs access to your storage to find and convert music files.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF777777), textAlign = TextAlign.Center)
+        Text("This app needs access to your storage to find and convert music files.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF555555), textAlign = TextAlign.Center)
         Spacer(modifier = Modifier.height(24.dp))
         GelButton(onClick = onRequestPermission) {
             Text("Grant Permission", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF444444))
