@@ -267,9 +267,9 @@ fun GelButton(
     ) { content() }
 }
 
-// QuickTime-era green-tinted LCD panel background.
-// Classic Mac OS X 10.1 QuickTime Player / iTunes display aesthetic.
-private val ProgressBarBg = Color(0xFFE8EDDA)
+// QuickTime Player 5 green LCD — muted sage-green, slightly grayed out.
+// The green comes from the panel itself; text/controls stay neutral dark.
+private val ProgressBarBg = Color(0xFFDDE2CB)
 private const val RIDGE_Y_FRACTION = 0.68f
 
 // ── Reusable aluminum background modifier (for top bar too) ────
@@ -539,10 +539,11 @@ private fun CalculatorProgressBar(
             .shadow(2.dp, RoundedCornerShape(6.dp), ambientColor = Color(0xFF666666), spotColor = Color(0xFF444444))
             .clip(RoundedCornerShape(6.dp))
             .background(ProgressBarBg)
-            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF8A8E80), Color(0xFFB0B4A6), Color(0xFF7E8274)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
+            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF9A9A9A), Color(0xFFBBBBBB), Color(0xFF8A8A8A)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
             .drawBehind {
-                drawLine(Color.Black.copy(alpha = 0.15f), Offset(4f, 1f), Offset(size.width - 4f, 1f), strokeWidth = 1.5f)
-                drawLine(Color.White.copy(alpha = 0.3f), Offset(4f, size.height - 2f), Offset(size.width - 4f, size.height - 2f), strokeWidth = 0.5f)
+                // Inset shadow: dark line at top, light at bottom (classic QT LCD bezel)
+                drawLine(Color.Black.copy(alpha = 0.20f), Offset(4f, 1f), Offset(size.width - 4f, 1f), strokeWidth = 1.5f)
+                drawLine(Color.White.copy(alpha = 0.4f), Offset(4f, size.height - 2f), Offset(size.width - 4f, size.height - 2f), strokeWidth = 1f)
             }
     ) {
         Row(
@@ -555,7 +556,7 @@ private fun CalculatorProgressBar(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
-                    color = if (isNotification) Color(0xFF5C6632) else Color(0xFF2A2E1A),
+                    color = if (isNotification) Color(0xFF8B4513) else Color(0xFF333333),
                     letterSpacing = if (isPlayerMode) 1.sp else 2.sp
                 ),
                 maxLines = 1
@@ -567,7 +568,7 @@ private fun CalculatorProgressBar(
                         val path = Path().apply {
                             moveTo(size.width / 2, 0f); lineTo(size.width, size.height); lineTo(0f, size.height); close()
                         }
-                        drawPath(path, Color(0xFF2A2E1A))
+                        drawPath(path, Color(0xFF333333))
                     }
                 }
 
@@ -583,9 +584,9 @@ private fun CalculatorProgressBar(
                     },
                     modifier = Modifier.weight(1f).height(18.dp),
                     colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF4A4E3A),
-                        activeTrackColor = Color(0xFF5C6248),
-                        inactiveTrackColor = Color(0xFFC8CCBA)
+                        thumbColor = Color(0xFF666666),
+                        activeTrackColor = Color(0xFF888888),
+                        inactiveTrackColor = Color(0xFFBBBBBB)
                     )
                 )
 
@@ -596,7 +597,7 @@ private fun CalculatorProgressBar(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            color = Color(0xFF2A2E1A),
+                            color = Color(0xFF333333),
                             letterSpacing = 1.sp
                         ),
                         maxLines = 1
@@ -863,10 +864,10 @@ private fun NowPlayingInfo(
             .shadow(2.dp, RoundedCornerShape(6.dp), ambientColor = Color(0xFF666666), spotColor = Color(0xFF444444))
             .clip(RoundedCornerShape(6.dp))
             .background(ProgressBarBg)
-            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF8A8E80), Color(0xFFB0B4A6), Color(0xFF7E8274)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
+            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF9A9A9A), Color(0xFFBBBBBB), Color(0xFF8A8A8A)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
             .drawBehind {
-                drawLine(Color.Black.copy(alpha = 0.15f), Offset(4f, 1f), Offset(size.width - 4f, 1f), strokeWidth = 1.5f)
-                drawLine(Color.White.copy(alpha = 0.3f), Offset(4f, size.height - 2f), Offset(size.width - 4f, size.height - 2f), strokeWidth = 0.5f)
+                drawLine(Color.Black.copy(alpha = 0.20f), Offset(4f, 1f), Offset(size.width - 4f, 1f), strokeWidth = 1.5f)
+                drawLine(Color.White.copy(alpha = 0.4f), Offset(4f, size.height - 2f), Offset(size.width - 4f, size.height - 2f), strokeWidth = 1f)
             }
     ) {
         Column(
@@ -879,7 +880,7 @@ private fun NowPlayingInfo(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
-                    color = Color(0xFF2A2E1A),
+                    color = Color(0xFF333333),
                     letterSpacing = 0.5.sp
                 ),
                 maxLines = 1,
@@ -891,7 +892,7 @@ private fun NowPlayingInfo(
                     style = TextStyle(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp,
-                        color = Color(0xFF4A5030),
+                        color = Color(0xFF666666),
                         letterSpacing = 0.5.sp
                     ),
                     maxLines = 1,
