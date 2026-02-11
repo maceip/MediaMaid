@@ -24,8 +24,8 @@ object RetroPlayerArtworkProvider {
     private const val ALUM_LIGHT = 0xFFD4D4D8.toInt()
     private const val ALUM_MID = 0xFFBCBCC0.toInt()
     private const val ALUM_DARK = 0xFFA4A4A8.toInt()
-    private const val LCD_BG = 0xFFFAF6E8.toInt()
-    private const val LCD_TEXT = 0xFF222222.toInt()
+    private const val LCD_BG = 0xFFE8EDDA.toInt()   // QuickTime green LCD
+    private const val LCD_TEXT = 0xFF2A2E1A.toInt() // Dark olive-green text
     private const val BUTTON_LIGHT = 0xFFF0F0F0.toInt()
     private const val BUTTON_DARK = 0xFFBBBBBB.toInt()
     private const val BEZEL = 0xFF999999.toInt()

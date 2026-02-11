@@ -267,9 +267,9 @@ fun GelButton(
     ) { content() }
 }
 
-// Cool LCD panel background — neutral silver-white that blends with aluminum chrome.
-// Avoids the warm cream (FAF6E8) that reads as green on OLED against cool metal.
-private val ProgressBarBg = Color(0xFFF0F1F4)
+// QuickTime-era green-tinted LCD panel background.
+// Classic Mac OS X 10.1 QuickTime Player / iTunes display aesthetic.
+private val ProgressBarBg = Color(0xFFE8EDDA)
 private const val RIDGE_Y_FRACTION = 0.68f
 
 // ── Reusable aluminum background modifier (for top bar too) ────
@@ -539,7 +539,7 @@ private fun CalculatorProgressBar(
             .shadow(2.dp, RoundedCornerShape(6.dp), ambientColor = Color(0xFF666666), spotColor = Color(0xFF444444))
             .clip(RoundedCornerShape(6.dp))
             .background(ProgressBarBg)
-            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF8E8E94), Color(0xFFB4B4B8), Color(0xFF84848A)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
+            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF8A8E80), Color(0xFFB0B4A6), Color(0xFF7E8274)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
             .drawBehind {
                 drawLine(Color.Black.copy(alpha = 0.15f), Offset(4f, 1f), Offset(size.width - 4f, 1f), strokeWidth = 1.5f)
                 drawLine(Color.White.copy(alpha = 0.3f), Offset(4f, size.height - 2f), Offset(size.width - 4f, size.height - 2f), strokeWidth = 0.5f)
@@ -555,7 +555,7 @@ private fun CalculatorProgressBar(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
-                    color = if (isNotification) Color(0xFF7A4010) else Color(0xFF1A1A1A),
+                    color = if (isNotification) Color(0xFF5C6632) else Color(0xFF2A2E1A),
                     letterSpacing = if (isPlayerMode) 1.sp else 2.sp
                 ),
                 maxLines = 1
@@ -567,7 +567,7 @@ private fun CalculatorProgressBar(
                         val path = Path().apply {
                             moveTo(size.width / 2, 0f); lineTo(size.width, size.height); lineTo(0f, size.height); close()
                         }
-                        drawPath(path, Color(0xFF1A1A1A))
+                        drawPath(path, Color(0xFF2A2E1A))
                     }
                 }
 
@@ -583,9 +583,9 @@ private fun CalculatorProgressBar(
                     },
                     modifier = Modifier.weight(1f).height(18.dp),
                     colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF4A4A50),
-                        activeTrackColor = Color(0xFF6A6A72),
-                        inactiveTrackColor = Color(0xFFCCCDD0)
+                        thumbColor = Color(0xFF4A4E3A),
+                        activeTrackColor = Color(0xFF5C6248),
+                        inactiveTrackColor = Color(0xFFC8CCBA)
                     )
                 )
 
@@ -596,7 +596,7 @@ private fun CalculatorProgressBar(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            color = Color(0xFF1A1A1A),
+                            color = Color(0xFF2A2E1A),
                             letterSpacing = 1.sp
                         ),
                         maxLines = 1
@@ -863,7 +863,7 @@ private fun NowPlayingInfo(
             .shadow(2.dp, RoundedCornerShape(6.dp), ambientColor = Color(0xFF666666), spotColor = Color(0xFF444444))
             .clip(RoundedCornerShape(6.dp))
             .background(ProgressBarBg)
-            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF8E8E94), Color(0xFFB4B4B8), Color(0xFF84848A)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
+            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF8A8E80), Color(0xFFB0B4A6), Color(0xFF7E8274)), Offset.Zero, Offset.Infinite), RoundedCornerShape(6.dp))
             .drawBehind {
                 drawLine(Color.Black.copy(alpha = 0.15f), Offset(4f, 1f), Offset(size.width - 4f, 1f), strokeWidth = 1.5f)
                 drawLine(Color.White.copy(alpha = 0.3f), Offset(4f, size.height - 2f), Offset(size.width - 4f, size.height - 2f), strokeWidth = 0.5f)
@@ -879,7 +879,7 @@ private fun NowPlayingInfo(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
-                    color = Color(0xFF1A1A1A),
+                    color = Color(0xFF2A2E1A),
                     letterSpacing = 0.5.sp
                 ),
                 maxLines = 1,
@@ -891,7 +891,7 @@ private fun NowPlayingInfo(
                     style = TextStyle(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp,
-                        color = Color(0xFF555558),
+                        color = Color(0xFF4A5030),
                         letterSpacing = 0.5.sp
                     ),
                     maxLines = 1,
