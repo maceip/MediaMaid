@@ -4,6 +4,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
+    id("org.jetbrains.kotlinx.kover")
 }
 
 android {
@@ -105,4 +106,44 @@ dependencies {
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+kover {
+    currentProject {
+        instrumentation {
+            excludedClasses.addAll(
+                "*.BuildConfig",
+                "*.R",
+                "*.R$*",
+                "*_Factory",
+                "*_MembersInjector",
+                "*.Hilt_*",
+                "*_HiltModules*"
+            )
+        }
+    }
+    reports {
+        filters {
+            excludes {
+                androidGeneratedClasses()
+                classes("*.BuildConfig")
+                annotatedBy(
+                    "dagger.Module",
+                    "dagger.hilt.InstallIn",
+                    "androidx.compose.ui.tooling.preview.Preview",
+                    "androidx.compose.runtime.Composable"
+                )
+            }
+        }
+        variant("debug") {
+            xml {
+                onCheck = false
+                xmlFile = layout.buildDirectory.file("reports/kover/debug/report.xml")
+            }
+            html {
+                onCheck = false
+                htmlDir = layout.buildDirectory.dir("reports/kover/debug/html")
+            }
+        }
+    }
 }
